@@ -1,0 +1,35 @@
+app:
+  timezone: Asia/Shanghai
+  database_url: sqlite:///data/monitor.db
+  report_dir: data/reports
+  report_cron: "0 */30 * * * *"
+
+notifications:
+  onebot:
+    endpoint: http://127.0.0.1:3000
+    access_token: ""
+    retry_count: 2
+    group_ids: ["123456789"]
+    private_user_ids: []
+
+targets:
+  - id: codex-quota
+    name: Codex 额度
+    url: https://example.com/api/quota
+    method: GET
+    cron: "0 */30 * * * *"
+    headers:
+      Authorization: "Bearer ${CPA_MONITOR_TOKEN}"
+    json_paths:
+      total: "$.summary.total"
+      available: "$.summary.available"
+      disabled: "$.summary.disabled"
+      unauthorized: "$.summary.unauthorized"
+      other_errors: "$.summary.other_errors"
+      types: "$.types"
+    thresholds:
+      available_drop: 1
+      unauthorized: 1
+      other_errors: 1
+      remaining_percent: 20
+      silence_minutes: 60

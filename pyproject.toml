@@ -1,0 +1,32 @@
+[project]
+name = "cpa-monitor"
+version = "0.1.0"
+description = "Scheduled HTTP JSON quota monitor with SQLite history, image reports, and OneBot QQ notifications."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "APScheduler>=3.10",
+  "playwright>=1.44",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+cpa-monitor = "cpa_monitor.interfaces.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cpa_monitor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

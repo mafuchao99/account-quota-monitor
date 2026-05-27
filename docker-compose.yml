@@ -1,0 +1,11 @@
+services:
+  cpa-monitor:
+    build: .
+    container_name: cpa-monitor
+    restart: unless-stopped
+    environment:
+      CPA_MONITOR_CONFIG: /app/config/config.yaml
+      TZ: Asia/Shanghai
+    volumes:
+      - ./config.yaml:/app/config/config.yaml:ro
+      - ./data:/app/data
