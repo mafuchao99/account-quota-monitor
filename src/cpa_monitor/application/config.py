@@ -28,6 +28,14 @@ class Thresholds:
 
 
 @dataclass(frozen=True)
+class DynamicSchedule:
+    enabled: bool = False
+    normal_interval_minutes: int = 30
+    urgent_interval_minutes: int = 10
+    urgent_remaining_percent: float | None = None
+
+
+@dataclass(frozen=True)
 class TargetConfig:
     id: str
     name: str
@@ -38,6 +46,7 @@ class TargetConfig:
     body: dict[str, Any] | None = None
     json_paths: JsonPaths = field(default_factory=JsonPaths)
     thresholds: Thresholds = field(default_factory=Thresholds)
+    dynamic_schedule: DynamicSchedule = field(default_factory=DynamicSchedule)
 
 
 @dataclass(frozen=True)
@@ -125,6 +134,7 @@ def _parse_config(data: dict[str, Any]) -> MonitorConfig:
 def _parse_target(data: dict[str, Any]) -> TargetConfig:
     paths = JsonPaths(**data.get("json_paths", {}))
     thresholds = Thresholds(**data.get("thresholds", {}))
+    dynamic_schedule = _parse_dynamic_schedule(data.get("dynamic_schedule", {}))
     return TargetConfig(
         id=str(data["id"]),
         name=str(data["name"]),
@@ -135,4 +145,21 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
         body=data.get("body"),
         json_paths=paths,
         thresholds=thresholds,
+        dynamic_schedule=dynamic_schedule,
     )
+
+
+def _parse_dynamic_schedule(data: dict[str, Any]) -> DynamicSchedule:
+    if not isinstance(data, dict):
+        raise ValueError("dynamic_schedule must be a mapping.")
+    schedule = DynamicSchedule(
+        enabled=bool(data.get("enabled", False)),
+        normal_interval_minutes=int(data.get("normal_interval_minutes", 30)),
+        urgent_interval_minutes=int(data.get("urgent_interval_minutes", 10)),
+        urgent_remaining_percent=(
+            None if data.get("urgent_remaining_percent") is None else float(data["urgent_remaining_percent"])
+        ),
+    )
+    if schedule.normal_interval_minutes <= 0 or schedule.urgent_interval_minutes <= 0:
+        raise ValueError("dynamic_schedule intervals must be positive minutes.")
+    return schedule

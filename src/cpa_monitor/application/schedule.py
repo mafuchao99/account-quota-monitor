@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Awaitable, Callable
+from datetime import tzinfo
+
+from cpa_monitor.domain.models import MetricSnapshot
+
+from .config import TargetConfig
+
+logger = logging.getLogger(__name__)
+
+CollectCallback = Callable[[TargetConfig], Awaitable[MetricSnapshot]]
+ReportCallback = Callable[[], Awaitable[None]]
+
 
 def cron_kwargs(expression: str) -> dict[str, str]:
     parts = expression.split()
@@ -23,3 +36,94 @@ def cron_kwargs(expression: str) -> dict[str, str]:
             "day_of_week": day_of_week,
         }
     raise ValueError(f"Cron expression must have 5 or 6 fields: {expression}")
+
+
+def collect_job_id(target: TargetConfig) -> str:
+    return f"collect:{target.id}"
+
+
+def desired_collect_interval_minutes(target: TargetConfig, snapshot: MetricSnapshot) -> int | None:
+    schedule = target.dynamic_schedule
+    if not schedule.enabled:
+        return None
+    threshold = (
+        target.thresholds.remaining_percent
+        if schedule.urgent_remaining_percent is None
+        else schedule.urgent_remaining_percent
+    )
+    if snapshot.available_percent is not None and snapshot.available_percent <= threshold:
+        return schedule.urgent_interval_minutes
+    return schedule.normal_interval_minutes
+
+
+class MonitorScheduler:
+    def __init__(
+        self,
+        timezone: tzinfo,
+        targets: tuple[TargetConfig, ...],
+        report_cron: str,
+        collect_callback: CollectCallback,
+        report_callback: ReportCallback,
+    ) -> None:
+        try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            from apscheduler.triggers.interval import IntervalTrigger
+        except ImportError as exc:
+            raise RuntimeError("APScheduler is required to run the scheduler.") from exc
+
+        self.timezone = timezone
+        self.collect_callback = collect_callback
+        self.report_callback = report_callback
+        self.scheduler = AsyncIOScheduler(timezone=timezone)
+        self.cron_trigger_cls = CronTrigger
+        self.interval_trigger_cls = IntervalTrigger
+        self.collect_interval_minutes: dict[str, int] = {}
+
+        for target in targets:
+            self._add_collect_job(target)
+        self.scheduler.add_job(
+            self.report_callback,
+            self.cron_trigger_cls(**cron_kwargs(report_cron), timezone=self.timezone),
+            id="report",
+            replace_existing=True,
+            max_instances=1,
+        )
+
+    def start(self) -> None:
+        self.scheduler.start()
+
+    def _add_collect_job(self, target: TargetConfig) -> None:
+        trigger = self.cron_trigger_cls(**cron_kwargs(target.cron), timezone=self.timezone)
+        if target.dynamic_schedule.enabled:
+            minutes = target.dynamic_schedule.normal_interval_minutes
+            self.collect_interval_minutes[target.id] = minutes
+            # Dynamic targets use interval scheduling; cron remains the fallback for fixed schedules.
+            trigger = self.interval_trigger_cls(minutes=minutes, timezone=self.timezone)
+
+        self.scheduler.add_job(
+            self._collect_and_reschedule,
+            trigger,
+            args=[target],
+            id=collect_job_id(target),
+            replace_existing=True,
+            max_instances=1,
+        )
+
+    async def _collect_and_reschedule(self, target: TargetConfig) -> None:
+        snapshot = await self.collect_callback(target)
+        self._reschedule_collect_job(target, snapshot)
+
+    def _reschedule_collect_job(self, target: TargetConfig, snapshot: MetricSnapshot) -> None:
+        desired_minutes = desired_collect_interval_minutes(target, snapshot)
+        if desired_minutes is None:
+            return
+        if self.collect_interval_minutes.get(target.id) == desired_minutes:
+            return
+
+        self.scheduler.reschedule_job(
+            collect_job_id(target),
+            trigger=self.interval_trigger_cls(minutes=desired_minutes, timezone=self.timezone),
+        )
+        self.collect_interval_minutes[target.id] = desired_minutes
+        logger.info("rescheduled target %s collection interval to %d minute(s)", target.id, desired_minutes)

@@ -43,33 +43,52 @@ docker compose logs -f cpa-monitor
 ```
 
 The container reads `/app/config/config.yaml` and writes SQLite data plus generated reports to the host `./data` directory.
+The image uses `uv` with `uv.lock` so local and container dependency resolution stay consistent.
 
 ## Local Development
 
+First-time setup:
+
 ```bash
-python3.11 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/playwright install chromium
-cp config.example.yaml config.yaml
-.venv/bin/cpa-monitor --config config.yaml run
+python scripts/dev.py setup
 ```
 
-Windows PowerShell:
+This runs `uv sync`, `uv run playwright install chromium`, and creates `config.yaml` from the example when it is missing.
+
+Daily run:
+
+```bash
+python scripts/dev.py run
+```
+
+Common development commands:
+
+```bash
+python scripts/dev.py collect
+python scripts/dev.py report
+python scripts/dev.py test
+```
+
+On macOS/Linux, if `make` is installed, you can also use shortcuts:
+
+```bash
+make setup
+make run
+```
+
+Windows PowerShell uses the same Python helper:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\pip install -e ".[dev]"
-.venv\Scripts\playwright install chromium
-copy config.example.yaml config.yaml
-.venv\Scripts\cpa-monitor --config config.yaml run
+python scripts/dev.py setup
+python scripts/dev.py run
 ```
 
 ## Commands
 
 ```bash
-cpa-monitor --config config.yaml collect-once
-cpa-monitor --config config.yaml report --hours 3
-cpa-monitor --config config.yaml run
+uv run cpa-monitor --config config.yaml collect-once
+uv run cpa-monitor --config config.yaml report --hours 3
+uv run cpa-monitor --config config.yaml run
 ```
 
 ## Configuration
@@ -81,8 +100,18 @@ cpa-monitor --config config.yaml run
 - `app.report_dir`: Output directory for HTML/PNG reports.
 - `app.report_cron`: Cron schedule for summary reports.
 - `targets[].cron`: Polling Cron for each target.
+- `targets[].dynamic_schedule`: Optional dynamic polling interval. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
 - `targets[].json_paths`: JSON paths for total, available, error counts, and type details.
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
+
+## Architecture Responsibilities
+
+- `application`: loads config, orchestrates collection/alerts/reports, and wraps APScheduler scheduling policy.
+- `domain`: stores snapshots, type metrics, and alert rules without depending on HTTP, SQLite, QQ, or browsers.
+- `infrastructure/http`: calls target HTTP JSON APIs with `httpx`.
+- `infrastructure/storage`: stores snapshots and alert silence state in SQLite.
+- `infrastructure/reporting`: renders HTML reports, then uses Playwright/Chromium to capture PNG images.
+- `infrastructure/notify`: sends text and image messages through the OneBot HTTP API.
 
 ## QQ OneBot
 

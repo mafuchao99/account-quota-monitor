@@ -43,33 +43,52 @@ docker compose logs -f cpa-monitor
 ```
 
 默认容器会把配置挂载到 `/app/config/config.yaml`，数据和报表写入宿主机 `./data`。
+镜像内部使用 `uv` 按 `uv.lock` 安装依赖，保证本地和容器里的依赖解析一致。
 
 ## 本地开发
 
+首次初始化：
+
 ```bash
-python3.11 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/playwright install chromium
-cp config.example.yaml config.yaml
-.venv/bin/cpa-monitor --config config.yaml run
+python scripts/dev.py setup
 ```
 
-Windows PowerShell：
+这个命令内部会执行 `uv sync`、`uv run playwright install chromium`，并在缺少 `config.yaml` 时从示例配置复制一份。
+
+日常运行：
+
+```bash
+python scripts/dev.py run
+```
+
+常用开发命令：
+
+```bash
+python scripts/dev.py collect
+python scripts/dev.py report
+python scripts/dev.py test
+```
+
+macOS/Linux 如果安装了 `make`，也可以使用快捷命令：
+
+```bash
+make setup
+make run
+```
+
+Windows PowerShell 同样使用 Python 脚本：
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\pip install -e ".[dev]"
-.venv\Scripts\playwright install chromium
-copy config.example.yaml config.yaml
-.venv\Scripts\cpa-monitor --config config.yaml run
+python scripts/dev.py setup
+python scripts/dev.py run
 ```
 
 ## 常用命令
 
 ```bash
-cpa-monitor --config config.yaml collect-once
-cpa-monitor --config config.yaml report --hours 3
-cpa-monitor --config config.yaml run
+uv run cpa-monitor --config config.yaml collect-once
+uv run cpa-monitor --config config.yaml report --hours 3
+uv run cpa-monitor --config config.yaml run
 ```
 
 ## 配置说明
@@ -81,8 +100,18 @@ cpa-monitor --config config.yaml run
 - `app.report_dir`：HTML/PNG 报表输出目录。
 - `app.report_cron`：汇总报表发送 Cron。
 - `targets[].cron`：单个接口采集 Cron。
+- `targets[].dynamic_schedule`：可选动态采集频率；开启后采集不再使用 `cron`，正常按 `normal_interval_minutes`，剩余比例低于 `urgent_remaining_percent` 时按 `urgent_interval_minutes`，未配置紧张阈值时沿用 `thresholds.remaining_percent`。
 - `targets[].json_paths`：从响应 JSON 中提取总量、可用量、错误数和类型明细。
 - `targets[].thresholds`：可用量下降、401、其他错误、剩余比例和静默时间阈值。
+
+## 架构职责
+
+- `application`：读取配置、编排采集/告警/报表用例，并封装 APScheduler 调度策略。
+- `domain`：保存监控快照、类型指标和告警规则，不依赖 HTTP、SQLite、QQ 或浏览器。
+- `infrastructure/http`：使用 `httpx` 请求目标 HTTP JSON 接口。
+- `infrastructure/storage`：使用 SQLite 保存历史快照和告警静默状态。
+- `infrastructure/reporting`：先生成 HTML 报表，再用 Playwright/Chromium 截图为 PNG。
+- `infrastructure/notify`：调用 OneBot HTTP API 推送文字和图片。
 
 ## QQ OneBot
 

@@ -18,6 +18,12 @@ targets:
     url: https://example.com/api/quota
     method: GET
     cron: "0 */30 * * * *"
+    dynamic_schedule:
+      enabled: true
+      normal_interval_minutes: 30
+      urgent_interval_minutes: 10
+      # 不配置时默认沿用 thresholds.remaining_percent。
+      urgent_remaining_percent: 20
     headers:
       Authorization: "Bearer ${CPA_MONITOR_TOKEN}"
     json_paths:

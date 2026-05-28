@@ -1,0 +1,35 @@
+services:
+  cpa-monitor-dev:
+    build:
+      context: .
+    image: cpa-monitor:dev
+    container_name: cpa-monitor-dev
+    working_dir: /app
+    restart: "no"
+    environment:
+      CPA_MONITOR_CONFIG: /app/config.yaml
+      PYTHONPATH: /app/src
+      TZ: Asia/Shanghai
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    command: >
+      sh -c "uv sync --extra dev &&
+      uv run cpa-monitor --config /app/config.yaml --log-level DEBUG run"
+
+  cpa-monitor-test:
+    build:
+      context: .
+    image: cpa-monitor:dev
+    container_name: cpa-monitor-test
+    working_dir: /app
+    profiles:
+      - test
+    environment:
+      PYTHONPATH: /app/src
+      TZ: Asia/Shanghai
+    volumes:
+      - .:/app
+    command: >
+      sh -c "uv sync --extra dev &&
+      uv run pytest"
