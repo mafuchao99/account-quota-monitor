@@ -15,8 +15,8 @@ notifications:
 targets:
   - id: codex-quota
     name: Codex 额度
-    url: https://example.com/api/quota
-    method: GET
+    collector: cli_proxy_codex
+    base_url: ${CPA_ENDPOINT}
     cron: "0 */30 * * * *"
     dynamic_schedule:
       enabled: true
@@ -25,14 +25,9 @@ targets:
       # 不配置时默认沿用 thresholds.remaining_percent。
       urgent_remaining_percent: 20
     headers:
-      Authorization: "Bearer ${CPA_MONITOR_TOKEN}"
-    json_paths:
-      total: "$.summary.total"
-      available: "$.summary.available"
-      disabled: "$.summary.disabled"
-      unauthorized: "$.summary.unauthorized"
-      other_errors: "$.summary.other_errors"
-      types: "$.types"
+      # CPA_ENDPOINT 和 CPA_MANAGEMENT_KEY 都从本地 .env 或系统环境变量读取。
+      # 开源仓库里不要提交真实接口地址或 Management Key。
+      Authorization: "Bearer ${CPA_MANAGEMENT_KEY}"
     thresholds:
       available_drop: 1
       unauthorized: 1

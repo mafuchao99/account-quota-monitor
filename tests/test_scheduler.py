@@ -47,6 +47,87 @@ urgent_remaining_percent = 15
     )
 
 
+def test_load_config_reads_sibling_env_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("CPA_MANAGEMENT_KEY", raising=False)
+    monkeypatch.delenv("CPA_ENDPOINT", raising=False)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+collector = "cli_proxy_codex"
+base_url = "${CPA_ENDPOINT}"
+
+[targets.headers]
+Authorization = "Bearer ${CPA_MANAGEMENT_KEY}"
+""",
+        encoding="utf-8",
+    )
+
+    (tmp_path / ".env").write_text(
+        "CPA_ENDPOINT=https://example.test\nCPA_MANAGEMENT_KEY=secret-from-env-file\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    assert config.targets[0].collector == "cli_proxy_codex"
+    assert config.targets[0].base_url == "https://example.test"
+    assert config.targets[0].headers["Authorization"] == "Bearer secret-from-env-file"
+
+
+def test_load_config_rejects_cli_proxy_example_endpoint(tmp_path, monkeypatch):
+    monkeypatch.delenv("CPA_ENDPOINT", raising=False)
+    monkeypatch.delenv("CPA_MANAGEMENT_KEY", raising=False)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+collector = "cli_proxy_codex"
+base_url = "${CPA_ENDPOINT}"
+
+[targets.headers]
+Authorization = "Bearer ${CPA_MANAGEMENT_KEY}"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "CPA_ENDPOINT=https://your-cpa-endpoint.example.com\nCPA_MANAGEMENT_KEY=secret\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="CPA_ENDPOINT"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_cli_proxy_example_management_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("CPA_ENDPOINT", raising=False)
+    monkeypatch.delenv("CPA_MANAGEMENT_KEY", raising=False)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+collector = "cli_proxy_codex"
+base_url = "${CPA_ENDPOINT}"
+
+[targets.headers]
+Authorization = "Bearer ${CPA_MANAGEMENT_KEY}"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "CPA_ENDPOINT=https://example.test\nCPA_MANAGEMENT_KEY=your-management-key\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="CPA_MANAGEMENT_KEY"):
+        load_config(config_path)
+
+
 def test_load_config_rejects_empty_targets(tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text("", encoding="utf-8")

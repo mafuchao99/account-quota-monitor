@@ -8,6 +8,8 @@ services:
     restart: "no"
     environment:
       CPA_MONITOR_CONFIG: /app/config.yaml
+      CPA_ENDPOINT: ${CPA_ENDPOINT:-}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY:-}
       PYTHONPATH: /app/src
       TZ: Asia/Shanghai
     volumes:

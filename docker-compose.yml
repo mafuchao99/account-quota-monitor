@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     environment:
       CPA_MONITOR_CONFIG: /app/config/config.yaml
+      CPA_ENDPOINT: ${CPA_ENDPOINT:-}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY:-}
       TZ: Asia/Shanghai
     volumes:
       - ./config.yaml:/app/config/config.yaml:ro

@@ -39,7 +39,9 @@ class DynamicSchedule:
 class TargetConfig:
     id: str
     name: str
-    url: str
+    url: str = ""
+    collector: str = "http_json"
+    base_url: str = ""
     method: str = "GET"
     cron: str = "0 */30 * * * *"
     headers: dict[str, str] = field(default_factory=dict)
@@ -80,9 +82,32 @@ def load_config(path: str | Path) -> MonitorConfig:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
+    _load_env_file(path.parent / ".env")
     data = _load_mapping(path)
     expanded = _expand_env(data)
-    return _parse_config(expanded)
+    config = _parse_config(expanded)
+    _validate_config(config)
+    return config
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        item = line.strip()
+        if not item or item.startswith("#") or "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = _clean_env_value(value.strip())
+
+
+def _clean_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
@@ -138,7 +163,9 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
     return TargetConfig(
         id=str(data["id"]),
         name=str(data["name"]),
-        url=str(data["url"]),
+        url=str(data.get("url", "")),
+        collector=str(data.get("collector", "http_json")),
+        base_url=str(data.get("base_url", "")),
         method=str(data.get("method", "GET")).upper(),
         cron=str(data.get("cron", "0 */30 * * * *")),
         headers={str(k): str(v) for k, v in data.get("headers", {}).items()},
@@ -163,3 +190,25 @@ def _parse_dynamic_schedule(data: dict[str, Any]) -> DynamicSchedule:
     if schedule.normal_interval_minutes <= 0 or schedule.urgent_interval_minutes <= 0:
         raise ValueError("dynamic_schedule intervals must be positive minutes.")
     return schedule
+
+
+def _validate_config(config: MonitorConfig) -> None:
+    for target in config.targets:
+        if target.collector.lower() != "cli_proxy_codex":
+            continue
+        if _is_placeholder(target.base_url or target.url, {"https://your-cpa-endpoint.example.com"}):
+            raise ValueError(
+                f"Target {target.id} is still using the example CPA endpoint. "
+                "Set CPA_ENDPOINT in .env to your CLIProxyAPI address."
+            )
+        authorization = target.headers.get("Authorization", "")
+        if _is_placeholder(authorization.removeprefix("Bearer").strip(), {"your-management-key"}):
+            raise ValueError(
+                f"Target {target.id} is still using the example Management Key. "
+                "Set CPA_MANAGEMENT_KEY in .env to your real Management Key."
+            )
+
+
+def _is_placeholder(value: str, placeholders: set[str]) -> bool:
+    normalized = value.strip()
+    return not normalized or normalized in placeholders

@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config.yaml"
 EXAMPLE_CONFIG = ROOT / "config.example.yaml"
+ENV_FILE = ROOT / ".env"
+EXAMPLE_ENV_FILE = ROOT / ".env.example"
 
 
 def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -30,6 +32,9 @@ def setup(_args: argparse.Namespace) -> None:
     if not CONFIG.exists():
         shutil.copyfile(EXAMPLE_CONFIG, CONFIG)
         print(f"Created {CONFIG.name} from {EXAMPLE_CONFIG.name}")
+    if not ENV_FILE.exists() and EXAMPLE_ENV_FILE.exists():
+        shutil.copyfile(EXAMPLE_ENV_FILE, ENV_FILE)
+        print(f"Created {ENV_FILE.name} from {EXAMPLE_ENV_FILE.name}")
 
 
 def cpa_monitor(args: argparse.Namespace, command: str, extra: list[str] | None = None) -> None:

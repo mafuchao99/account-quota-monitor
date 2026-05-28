@@ -7,3 +7,5 @@ data/
 dist/
 *.egg-info/
 config.yaml
+.env
+.env.local
