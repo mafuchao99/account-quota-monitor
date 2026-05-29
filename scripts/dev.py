@@ -54,6 +54,15 @@ def cpa_monitor(args: argparse.Namespace, command: str, extra: list[str] | None 
     )
 
 
+def report_args(args: argparse.Namespace) -> list[str]:
+    extra = []
+    if args.hours:
+        extra.extend(["--hours", args.hours])
+    if args.detail_mode:
+        extra.extend(["--detail-mode", args.detail_mode])
+    return extra
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Development helper for CPA Monitor.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -71,11 +80,37 @@ def main() -> None:
     collect_parser.add_argument("--log-level", default="DEBUG")
     collect_parser.set_defaults(func=lambda args: cpa_monitor(args, "collect-once"))
 
+    credentials_parser = subparsers.add_parser("credentials", help="Fetch CLIProxyAPI Codex credential status.")
+    credentials_parser.add_argument("--config", default="config.yaml")
+    credentials_parser.add_argument("--log-level", default="INFO")
+    credentials_parser.set_defaults(func=lambda args: cpa_monitor(args, "credentials"))
+
+    quota_one_parser = subparsers.add_parser("quota-one", help="Collect quota for one CLIProxyAPI Codex credential.")
+    quota_one_parser.add_argument("--config", default="config.yaml")
+    quota_one_parser.add_argument("--log-level", default="INFO")
+    quota_one_group = quota_one_parser.add_mutually_exclusive_group(required=True)
+    quota_one_group.add_argument("--auth-index")
+    quota_one_group.add_argument("--match")
+    quota_one_parser.set_defaults(
+        func=lambda args: cpa_monitor(
+            args,
+            "quota-one",
+            ["--auth-index", args.auth_index] if args.auth_index else ["--match", args.match],
+        )
+    )
+
+    notify_parser = subparsers.add_parser("notify", help="Send a test notification.")
+    notify_parser.add_argument("--config", default="config.yaml")
+    notify_parser.add_argument("--log-level", default="INFO")
+    notify_parser.add_argument("--message", default="CPA Monitor 通知测试")
+    notify_parser.set_defaults(func=lambda args: cpa_monitor(args, "notify-test", ["--message", args.message]))
+
     report_parser = subparsers.add_parser("report", help="Generate and send a report.")
     report_parser.add_argument("--config", default="config.yaml")
     report_parser.add_argument("--log-level", default="DEBUG")
-    report_parser.add_argument("--hours", default="3")
-    report_parser.set_defaults(func=lambda args: cpa_monitor(args, "report", ["--hours", args.hours]))
+    report_parser.add_argument("--hours")
+    report_parser.add_argument("--detail-mode", choices=("latest", "all", "none"))
+    report_parser.set_defaults(func=lambda args: cpa_monitor(args, "report", report_args(args)))
 
     test_parser = subparsers.add_parser("test", help="Run tests.")
     test_parser.set_defaults(func=lambda _args: run([uv_command(), "run", "pytest"]))

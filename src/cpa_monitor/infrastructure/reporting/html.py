@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import html
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
+from cpa_monitor.domain.summary import format_snapshot_summary, recovery_events
 
 
 class HtmlImageReporter:
     def __init__(self, report_dir: str | Path) -> None:
         self.report_dir = Path(report_dir)
 
-    async def render(self, snapshots: list[MetricSnapshot], generated_at: datetime) -> Path | None:
-        result = await write_report(snapshots, self.report_dir, generated_at)
+    async def render(
+        self,
+        snapshots: list[MetricSnapshot],
+        generated_at: datetime,
+        history_snapshots: list[MetricSnapshot] | None = None,
+        detail_mode: str = "all",
+        unauthorized_names: set[str] | None = None,
+    ) -> Path | None:
+        result = await write_report(snapshots, self.report_dir, generated_at, history_snapshots, detail_mode, unauthorized_names)
         return result.image_path
 
 
@@ -22,7 +31,23 @@ class ReportResult:
         self.image_path = image_path
 
 
-def render_report_html(snapshots: list[MetricSnapshot], generated_at: datetime) -> str:
+@dataclass(frozen=True)
+class UnauthorizedAccountAnalysis:
+    type_name: str
+    first_success_at: datetime | None
+    last_success_at: datetime | None
+    unauthorized_at: datetime
+    used_5h_percent: float | None
+    used_7d_percent: float | None
+
+
+def render_report_html(
+    snapshots: list[MetricSnapshot],
+    generated_at: datetime,
+    history_snapshots: list[MetricSnapshot] | None = None,
+    detail_mode: str = "all",
+    unauthorized_names: set[str] | None = None,
+) -> str:
     if not snapshots:
         title = "Codex 额度汇总"
         return f"<!doctype html><meta charset='utf-8'><title>{title}</title><h1>{title}</h1><p>暂无数据</p>"
@@ -45,7 +70,10 @@ def render_report_html(snapshots: list[MetricSnapshot], generated_at: datetime) 
             "</tr>"
         )
 
-    detail_blocks = "\n".join(_detail_block(item) for item in snapshots)
+    latest_summary = _summary_block(snapshots[-1])
+    unauthorized_analysis = _unauthorized_analysis_block(snapshots, history_snapshots or snapshots, unauthorized_names)
+    trend_block = _trend_block(rows, detail_mode)
+    detail_blocks = _detail_blocks(snapshots, detail_mode)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -71,8 +99,13 @@ def render_report_html(snapshots: list[MetricSnapshot], generated_at: datetime) 
     .danger {{ color: #ef4444; }}
     .ok {{ color: #22c55e; }}
     .card {{ margin: 20px 0; background: white; border: 1px solid #cbd7ea; border-radius: 8px; overflow: hidden; }}
-    .card-head {{ display: flex; gap: 18px; align-items: baseline; padding: 12px 20px; background: #e8f1ff; }}
+    .card-head {{ display: flex; gap: 18px; align-items: flex-start; padding: 12px 20px; background: #e8f1ff; }}
     .time {{ color: #2563eb; font-size: 28px; min-width: 92px; }}
+    .quota-summary {{ display: grid; gap: 6px; line-height: 1.55; }}
+    .quota-line {{ display: flex; flex-wrap: wrap; gap: 8px 18px; }}
+    .quota-recovery-title {{ margin-top: 2px; color: #253047; font-weight: 650; }}
+    .quota-recovery-list {{ margin: 0; padding-left: 20px; }}
+    .quota-recovery-list li {{ margin: 2px 0; }}
     .card-body {{ padding: 18px 20px 26px; }}
     .footer {{ margin-top: 20px; font-size: 14px; }}
   </style>
@@ -80,25 +113,32 @@ def render_report_html(snapshots: list[MetricSnapshot], generated_at: datetime) 
 <body>
   <h1>Codex 额度汇总</h1>
   <div class="muted">时间段：{start:%Y-%m-%d %H:%M} - {end:%Y-%m-%d %H:%M}　查询次数：{len(snapshots)}</div>
-  <h2>总览趋势</h2>
-  <table>
-    <thead><tr><th>时间</th><th>可用/总数</th><th>可用变化</th><th>禁用</th><th>401</th><th>其他错误</th></tr></thead>
-    <tbody>{''.join(rows)}</tbody>
-  </table>
-  <h2>分时明细</h2>
+  {latest_summary}
+  {unauthorized_analysis}
+  {trend_block}
   {detail_blocks}
   <div class="footer muted">Generated at {generated_at:%Y-%m-%d %H:%M:%S}</div>
 </body>
 </html>"""
 
 
-async def write_report(snapshots: list[MetricSnapshot], report_dir: str | Path, generated_at: datetime) -> ReportResult:
-    directory = Path(report_dir)
+async def write_report(
+    snapshots: list[MetricSnapshot],
+    report_dir: str | Path,
+    generated_at: datetime,
+    history_snapshots: list[MetricSnapshot] | None = None,
+    detail_mode: str = "all",
+    unauthorized_names: set[str] | None = None,
+) -> ReportResult:
+    directory = _report_directory(report_dir, generated_at)
     directory.mkdir(parents=True, exist_ok=True)
     stamp = generated_at.strftime("%Y%m%d-%H%M%S")
     html_path = directory / f"codex-quota-{stamp}.html"
     image_path = directory / f"codex-quota-{stamp}.png"
-    html_path.write_text(render_report_html(snapshots, generated_at), encoding="utf-8")
+    html_path.write_text(
+        render_report_html(snapshots, generated_at, history_snapshots, detail_mode, unauthorized_names),
+        encoding="utf-8",
+    )
 
     try:
         from playwright.async_api import async_playwright
@@ -114,35 +154,217 @@ async def write_report(snapshots: list[MetricSnapshot], report_dir: str | Path, 
     return ReportResult(html_path=html_path, image_path=image_path)
 
 
+def _report_directory(report_dir: str | Path, generated_at: datetime) -> Path:
+    return Path(report_dir) / generated_at.strftime("%Y-%m-%d")
+
+
+def _trend_block(rows: list[str], detail_mode: str) -> str:
+    if detail_mode != "all":
+        return ""
+    return f"""
+  <h2>总览趋势</h2>
+  <table>
+    <thead><tr><th>时间</th><th>可用/总数</th><th>可用变化</th><th>禁用</th><th>401</th><th>其他错误</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>"""
+
+
+def _detail_blocks(snapshots: list[MetricSnapshot], detail_mode: str) -> str:
+    if detail_mode == "none":
+        return ""
+    if detail_mode == "latest":
+        snapshots = snapshots[-1:]
+    elif detail_mode != "all":
+        raise ValueError("detail_mode must be one of: latest, all, none.")
+    detail_blocks = "\n".join(_detail_block(item) for item in snapshots)
+    return f"""
+  <h2>分时明细</h2>
+  {detail_blocks}"""
+
+
 def _detail_block(snapshot: MetricSnapshot) -> str:
-    rows = "\n".join(_type_row(item) for item in snapshot.type_metrics)
+    rows = "\n".join(_type_row(item, snapshot.captured_at) for item in snapshot.type_metrics)
     if not rows:
-        rows = "<tr><td>unknown</td><td>-</td><td>-</td><td>-</td><td class='danger'>0</td><td>0</td></tr>"
+        rows = "<tr><td>unknown</td><td>-</td><td>-</td><td>-</td><td>-</td><td class='danger'>0</td><td>0</td></tr>"
     return f"""
   <section class="card">
     <div class="card-head">
       <div class="time">{snapshot.captured_at:%H:%M}</div>
-      <div class="muted">总计&nbsp;&nbsp;可用 {snapshot.available}/{snapshot.total}&nbsp;&nbsp; 禁用 {snapshot.disabled}&nbsp;&nbsp; 401 {snapshot.unauthorized}&nbsp;&nbsp; 其他错误 {snapshot.other_errors}</div>
+      {_html_total_quota(snapshot)}
     </div>
     <div class="card-body">
       <table>
-        <thead><tr><th>类型</th><th>可用/总数</th><th>5h剩余</th><th>7d剩余</th><th>401</th><th>其他错误</th></tr></thead>
+        <thead><tr><th>类型</th><th>可用/总数</th><th>5h剩余</th><th>7d剩余</th><th>5h恢复</th><th>401</th><th>其他错误</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
     </div>
   </section>"""
 
 
-def _type_row(metric: TypeMetric) -> str:
+def _type_row(metric: TypeMetric, captured_at: datetime) -> str:
     remaining_5h = "-" if metric.remaining_5h_percent is None else f"{metric.remaining_5h_percent:.2f}%"
     remaining_7d = "-" if metric.remaining_7d_percent is None else f"{metric.remaining_7d_percent:.2f}%"
+    reset_5h_at = metric.reset_5h_at.astimezone(captured_at.tzinfo) if metric.reset_5h_at and captured_at.tzinfo else metric.reset_5h_at
+    reset_5h = "-" if reset_5h_at is None else f"{reset_5h_at:%H:%M}"
     return (
         "<tr>"
         f"<td class='ok'>{html.escape(metric.type_name)}</td>"
         f"<td>{metric.available}/{metric.total}</td>"
         f"<td>{remaining_5h}</td>"
         f"<td>{remaining_7d}</td>"
+        f"<td>{reset_5h}</td>"
         f"<td class='danger'>{metric.unauthorized}</td>"
         f"<td>{metric.other_errors}</td>"
         "</tr>"
     )
+
+
+def _summary_block(snapshot: MetricSnapshot) -> str:
+    summary = html.escape(format_snapshot_summary(snapshot)).replace("\n", "<br>")
+    return f"""
+  <section class="card">
+    <div class="card-head"><strong>最新汇总</strong></div>
+    <div class="card-body">{summary}</div>
+  </section>"""
+
+
+def _unauthorized_analysis_block(
+    snapshots: list[MetricSnapshot],
+    history_snapshots: list[MetricSnapshot],
+    unauthorized_names: set[str] | None,
+) -> str:
+    analyses = _unauthorized_account_analyses(snapshots, history_snapshots, unauthorized_names)
+    if not analyses:
+        return ""
+    rows = "\n".join(_unauthorized_analysis_row(item) for item in analyses)
+    return f"""
+  <section class="card">
+    <div class="card-head"><strong>401 账号分析</strong></div>
+    <div class="card-body">
+      <table>
+        <thead><tr><th>账号</th><th>存活时长</th><th>首次成功</th><th>最后成功</th><th>401 时间</th><th>5h 消耗</th><th>周额度消耗</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+      <div class="footer muted">基于本地已采集快照估算；401 当次通常拿不到额度，所以消耗量取最后一次成功采集值。</div>
+    </div>
+  </section>"""
+
+
+def _unauthorized_analysis_row(item: UnauthorizedAccountAnalysis) -> str:
+    return (
+        "<tr>"
+        f"<td class='danger'>{html.escape(item.type_name)}</td>"
+        f"<td>{_duration_text(item.first_success_at, item.unauthorized_at)}</td>"
+        f"<td>{_time_text(item.first_success_at)}</td>"
+        f"<td>{_time_text(item.last_success_at)}</td>"
+        f"<td>{_time_text(item.unauthorized_at)}</td>"
+        f"<td>{_used_percent_text(item.used_5h_percent)}</td>"
+        f"<td>{_used_percent_text(item.used_7d_percent)}</td>"
+        "</tr>"
+    )
+
+
+def _unauthorized_account_analyses(
+    snapshots: list[MetricSnapshot],
+    history_snapshots: list[MetricSnapshot],
+    unauthorized_names: set[str] | None,
+) -> list[UnauthorizedAccountAnalysis]:
+    unauthorized_items = {}
+    for snapshot in snapshots:
+        for metric in snapshot.type_metrics:
+            if metric.unauthorized > 0:
+                unauthorized_items[metric.type_name] = (snapshot.captured_at, metric)
+    if unauthorized_names is not None:
+        unauthorized_items = {name: item for name, item in unauthorized_items.items() if name in unauthorized_names}
+
+    analyses = []
+    for type_name, (unauthorized_at, _metric) in sorted(unauthorized_items.items(), key=lambda item: item[1][0]):
+        successful_history = [
+            (snapshot.captured_at, metric)
+            for snapshot in history_snapshots
+            for metric in snapshot.type_metrics
+            if metric.type_name == type_name
+            and snapshot.captured_at < unauthorized_at
+            and metric.unauthorized == 0
+            and metric.other_errors == 0
+            and (metric.remaining_5h_percent is not None or metric.remaining_7d_percent is not None)
+        ]
+        successful_history.sort(key=lambda item: item[0])
+        first_success_at = successful_history[0][0] if successful_history else None
+        last_success_at = successful_history[-1][0] if successful_history else None
+        last_metric = successful_history[-1][1] if successful_history else None
+        analyses.append(
+            UnauthorizedAccountAnalysis(
+                type_name=type_name,
+                first_success_at=first_success_at,
+                last_success_at=last_success_at,
+                unauthorized_at=unauthorized_at,
+                used_5h_percent=_used_percent(last_metric.remaining_5h_percent) if last_metric else None,
+                used_7d_percent=_used_percent(last_metric.remaining_7d_percent) if last_metric else None,
+            )
+        )
+    return analyses
+
+
+def _html_total_quota(snapshot: MetricSnapshot) -> str:
+    metrics = [item for item in snapshot.type_metrics if item.available > 0]
+    five = _average_percent(item.remaining_5h_percent for item in metrics)
+    seven = _average_percent(item.remaining_7d_percent for item in metrics)
+    recoveries = recovery_events(metrics, snapshot.captured_at)[:3]
+    if recoveries:
+        recovery_html = "\n".join(f"<li>{html.escape(item)}</li>" for item in recoveries)
+    else:
+        recovery_html = "<li>恢复时间未知</li>"
+    return f"""
+      <div class="quota-summary muted">
+        <div class="quota-line">
+          <span>总计</span>
+          <span>可用 {snapshot.available}/{snapshot.total}</span>
+          <span>禁用 {snapshot.disabled}</span>
+          <span>401 {snapshot.unauthorized}</span>
+          <span>其他错误 {snapshot.other_errors}</span>
+        </div>
+        <div class="quota-line">
+          <span>总 5h {five}</span>
+          <span>总 7d {seven}</span>
+        </div>
+        <div class="quota-recovery-title">最近三次 5h 恢复：</div>
+        <ul class="quota-recovery-list">
+          {recovery_html}
+        </ul>
+      </div>"""
+
+
+def _average_percent(values) -> str:
+    known = [value for value in values if value is not None]
+    if not known:
+        return "-"
+    return f"{sum(known) / len(known):.2f}%"
+
+
+def _used_percent(remaining_percent: float | None) -> float | None:
+    return None if remaining_percent is None else max(0.0, 100.0 - remaining_percent)
+
+
+def _used_percent_text(value: float | None) -> str:
+    return "-" if value is None else f"{value:.2f}%"
+
+
+def _time_text(value: datetime | None) -> str:
+    return "-" if value is None else f"{value:%Y-%m-%d %H:%M}"
+
+
+def _duration_text(start: datetime | None, end: datetime) -> str:
+    if start is None:
+        return "历史成功记录不足"
+    minutes = max(0, round((end - start).total_seconds() / 60))
+    days, remainder = divmod(minutes, 1440)
+    hours, mins = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} 天")
+    if hours:
+        parts.append(f"{hours} 小时")
+    if mins or not parts:
+        parts.append(f"{mins} 分钟")
+    return "约 " + " ".join(parts)

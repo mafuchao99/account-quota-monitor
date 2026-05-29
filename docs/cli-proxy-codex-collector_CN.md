@@ -124,3 +124,11 @@ flowchart TD
 ```bash
 uv run pytest
 ```
+
+只测试 CLIProxyAPI 凭证列表和状态时运行：
+
+```bash
+python scripts/dev.py credentials
+```
+
+这个命令只调用 `/auth-files`，不会触发 `/api-call` 查询额度。

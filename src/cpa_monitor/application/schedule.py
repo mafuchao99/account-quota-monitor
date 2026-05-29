@@ -62,8 +62,10 @@ class MonitorScheduler:
         timezone: tzinfo,
         targets: tuple[TargetConfig, ...],
         report_cron: str,
+        full_report_crons: tuple[str, ...],
         collect_callback: CollectCallback,
         report_callback: ReportCallback,
+        full_report_callback: ReportCallback,
     ) -> None:
         try:
             from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -75,6 +77,7 @@ class MonitorScheduler:
         self.timezone = timezone
         self.collect_callback = collect_callback
         self.report_callback = report_callback
+        self.full_report_callback = full_report_callback
         self.scheduler = AsyncIOScheduler(timezone=timezone)
         self.cron_trigger_cls = CronTrigger
         self.interval_trigger_cls = IntervalTrigger
@@ -89,6 +92,14 @@ class MonitorScheduler:
             replace_existing=True,
             max_instances=1,
         )
+        for index, full_report_cron in enumerate(full_report_crons):
+            self.scheduler.add_job(
+                self.full_report_callback,
+                self.cron_trigger_cls(**cron_kwargs(full_report_cron), timezone=self.timezone),
+                id=f"full-report:{index}",
+                replace_existing=True,
+                max_instances=1,
+            )
 
     def start(self) -> None:
         self.scheduler.start()

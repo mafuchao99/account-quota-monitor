@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from cpa_monitor.application.config import TargetConfig
@@ -12,6 +13,16 @@ from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 USER_AGENT = "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal"
+
+
+@dataclass(frozen=True)
+class CodexCredential:
+    name: str
+    auth_index: str
+    status: str
+    disabled: bool
+    unavailable: bool
+    account: str
 
 
 @dataclass(frozen=True)
@@ -34,9 +45,14 @@ class CodexQuotaResult:
         return self.metric.other_errors
 
 
+@dataclass(frozen=True)
+class CodexCredentialQuota:
+    credential: CodexCredential
+    result: CodexQuotaResult
+
+
 class CliProxyCodexCollector:
-    def __init__(self, concurrency: int = 5, timeout: float = 60) -> None:
-        self.concurrency = concurrency
+    def __init__(self, timeout: float = 60) -> None:
         self.timeout = timeout
 
     async def collect(self, target: TargetConfig, captured_at: datetime) -> MetricSnapshot:
@@ -54,7 +70,7 @@ class CliProxyCodexCollector:
                 files = response.json().get("files", [])
                 disabled = sum(1 for item in files if _is_codex_file(item) and item.get("disabled") is True)
                 active_files = [item for item in files if _is_active_codex_file(item)]
-                results = await self._collect_all(client, base_url, headers, active_files)
+                results = await self._collect_all(client, base_url, headers, active_files, target)
             except Exception as exc:
                 return _error_snapshot(target, captured_at, str(exc))
 
@@ -79,14 +95,89 @@ class CliProxyCodexCollector:
         base_url: str,
         headers: dict[str, str],
         files: list[dict[str, Any]],
+        target: TargetConfig,
     ) -> list[CodexQuotaResult]:
-        semaphore = asyncio.Semaphore(self.concurrency)
+        results = []
+        for index, item in enumerate(files):
+            if index > 0:
+                await asyncio.sleep(random.uniform(target.delay_min_seconds, target.delay_max_seconds))
+            results.append(await collect_codex_quota(client, base_url, headers, item))
+        return results
 
-        async def collect_one(item: dict[str, Any]) -> CodexQuotaResult:
-            async with semaphore:
-                return await collect_codex_quota(client, base_url, headers, item)
 
-        return await asyncio.gather(*(collect_one(item) for item in files))
+async def fetch_codex_credentials(target: TargetConfig) -> list[CodexCredential]:
+    try:
+        import httpx
+    except ImportError as exc:
+        raise RuntimeError("httpx is required to fetch CLIProxyAPI credentials.") from exc
+
+    base_url = management_base_url(target)
+    headers = management_headers(target)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{base_url}/auth-files", headers=headers)
+        response.raise_for_status()
+        files = response.json().get("files", [])
+    return [credential_summary(item) for item in files if _is_codex_file(item)]
+
+
+async def collect_one_codex_quota(target: TargetConfig, auth_index: str | None = None, match: str | None = None) -> CodexCredentialQuota:
+    try:
+        import httpx
+    except ImportError as exc:
+        raise RuntimeError("httpx is required to collect CLIProxyAPI Codex quota.") from exc
+
+    base_url = management_base_url(target)
+    headers = management_headers(target)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{base_url}/auth-files", headers=headers)
+        response.raise_for_status()
+        files = [item for item in response.json().get("files", []) if _is_codex_file(item)]
+        raw = select_credential(files, auth_index=auth_index, match=match)
+        result = await collect_codex_quota(client, base_url, headers, raw)
+    return CodexCredentialQuota(credential=credential_summary(raw), result=result)
+
+
+def credential_summary(item: dict[str, Any]) -> CodexCredential:
+    return CodexCredential(
+        name=_display_name(item),
+        auth_index=str(item.get("auth_index") or ""),
+        status=str(item.get("status") or "-"),
+        disabled=bool(item.get("disabled")),
+        unavailable=bool(item.get("unavailable")),
+        account=str(item.get("account") or item.get("account_type") or "-"),
+    )
+
+
+def select_credential(
+    credentials: list[dict[str, Any]],
+    auth_index: str | None = None,
+    match: str | None = None,
+) -> dict[str, Any]:
+    if bool(auth_index) == bool(match):
+        raise ValueError("Provide exactly one of auth_index or match.")
+
+    if auth_index:
+        matches = [item for item in credentials if _auth_index_matches(str(item.get("auth_index") or ""), auth_index)]
+    else:
+        pattern = str(match or "").lower()
+        matches = [
+            item
+            for item in credentials
+            if pattern in _display_name(item).lower()
+            or pattern in str(item.get("account") or "").lower()
+            or pattern in str(item.get("auth_index") or "").lower()
+        ]
+
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one credential match, got {len(matches)}.")
+    return matches[0]
+
+
+def _auth_index_matches(value: str, pattern: str) -> bool:
+    if "..." not in pattern:
+        return value == pattern
+    prefix, suffix = pattern.split("...", 1)
+    return value.startswith(prefix) and value.endswith(suffix)
 
 
 async def collect_codex_quota(
@@ -135,6 +226,8 @@ def quota_result(credential: dict[str, Any], status_code: int, quota: dict[str, 
         total=1,
         remaining_5h_percent=_remaining_percent(_get(quota, "rate_limit", "primary_window", "used_percent")),
         remaining_7d_percent=_remaining_percent(_get(quota, "rate_limit", "secondary_window", "used_percent")),
+        reset_5h_at=_reset_at(_get(quota, "rate_limit", "primary_window", "reset_at")),
+        reset_7d_at=_reset_at(_get(quota, "rate_limit", "secondary_window", "reset_at")),
         unauthorized=unauthorized,
         other_errors=other_errors,
     )
@@ -216,6 +309,15 @@ def _remaining_percent(used_percent: Any) -> float | None:
     try:
         return max(0.0, 100.0 - float(used_percent))
     except (TypeError, ValueError):
+        return None
+
+
+def _reset_at(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
         return None
 
 

@@ -34,6 +34,7 @@ CPA_MANAGEMENT_KEY=your-management-key
 运行一次采集验证：
 
 ```bash
+python scripts/dev.py credentials
 python scripts/dev.py collect
 ```
 
@@ -55,8 +56,10 @@ cp config.example.yaml config.yaml
 - `targets[].collector`：默认使用 `cli_proxy_codex`，会按 CLIProxyAPI 管理端文档自动读取凭证并查询 Codex 额度。
 - `targets[].base_url`：默认使用 `${CPA_ENDPOINT}`，不要把真实接口地址提交到仓库。
 - `targets[].headers.Authorization`：默认使用 `Bearer ${CPA_MANAGEMENT_KEY}`，程序会自动读取同目录 `.env`，也支持系统环境变量。不要把真实 Key 提交到仓库。
-- `notifications.onebot.endpoint`：填写 NapCatQQ/OneBot HTTP 地址。
-- `notifications.onebot.group_ids` 或 `private_user_ids`：填写接收通知的群号或 QQ 号。
+- `targets[].delay_min_seconds` / `delay_max_seconds`：全量采集时每个凭证顺序查询，两个凭证之间随机等待，默认 1 到 3 秒，避免并发触发风控。
+- `notifications.console.enabled`：默认开启，告警和报表提醒会直接打印到控制台。
+- `notifications.qqbot.enabled`：如果使用 QQ 官方机器人私聊通知，改为 `true`，并在 `.env` 填写 `QQBOT_APP_ID`、`QQBOT_APP_SECRET`、`QQBOT_OPENID`。
+- `notifications.onebot.enabled`：如果使用 NapCatQQ/OneBot，改为 `true`，再填写 endpoint 和接收人。
 
 3. 启动：
 
@@ -92,6 +95,8 @@ python scripts/dev.py run
 常用开发命令：
 
 ```bash
+python scripts/dev.py credentials
+python scripts/dev.py notify --message "CPA Monitor 通知测试"
 python scripts/dev.py collect
 python scripts/dev.py report
 python scripts/dev.py test
@@ -115,7 +120,10 @@ python scripts/dev.py run
 
 ```bash
 uv run cpa-monitor --config config.yaml collect-once
-uv run cpa-monitor --config config.yaml report --hours 3
+uv run cpa-monitor --config config.yaml credentials
+uv run cpa-monitor --config config.yaml notify-test --message "CPA Monitor 通知测试"
+uv run cpa-monitor --config config.yaml report
+uv run cpa-monitor --config config.yaml report --hours 6 --detail-mode all
 uv run cpa-monitor --config config.yaml run
 ```
 
@@ -126,14 +134,30 @@ uv run cpa-monitor --config config.yaml run
 - `app.timezone`：调度和报表时区。
 - `app.database_url`：SQLite 路径，当前第一版只支持 `sqlite:///...`。
 - `app.report_dir`：HTML/PNG 报表输出目录。
-- `app.report_cron`：汇总报表发送 Cron。
+- `app.report_cron` / `app.report_hours` / `app.report_detail_mode`：小时报 Cron、统计窗口和分时明细模式；默认每小时发送最近 1 小时，只展示最新一次明细。
+- `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`：完整报 Cron 列表、统计窗口和分时明细模式；默认每天 07:30、12:10、19:10、23:30 各发送一次最近 6 小时完整明细，只做数据总结，不触发采集。
+- 401 账号分析会按邮箱和日期去重；同一天已报告过的 401 账号，后续小时报/完整报不再重复展示，第二天重新统计新的 401。
 - `targets[].collector`：采集器类型。`cli_proxy_codex` 会调用 CLIProxyAPI 的 `/auth-files` 和 `/api-call`；不配置时兼容原来的 `http_json`。
 - `targets[].base_url`：CLIProxyAPI 地址。示例使用环境变量 `CPA_ENDPOINT`，真实地址写到本地 `.env` 或运行环境变量。
 - `targets[].headers.Authorization`：请求鉴权头，格式为 `Bearer <Management Key>`；示例使用环境变量 `CPA_MANAGEMENT_KEY`，真实 Key 写到本地 `.env` 或运行环境变量。
+- `targets[].delay_min_seconds` / `delay_max_seconds`：全量额度采集的随机间隔。只影响 `collect` / 常驻采集，`quota-one` 单查不会等待。
 - `targets[].cron`：单个接口采集 Cron。
 - `targets[].dynamic_schedule`：可选动态采集频率；开启后采集不再使用 `cron`，正常按 `normal_interval_minutes`，剩余比例低于 `urgent_remaining_percent` 时按 `urgent_interval_minutes`，未配置紧张阈值时沿用 `thresholds.remaining_percent`。
 - `targets[].json_paths`：仅 `http_json` 采集器需要，用于从响应 JSON 中提取总量、可用量、错误数和类型明细。
 - `targets[].thresholds`：可用量下降、401、其他错误、剩余比例和静默时间阈值。
+- `notifications.console`：控制台通知配置，默认开启，适合本地调试和不接机器人时使用。
+- `notifications.qqbot`：QQ 官方机器人通知配置。当前先支持给单个 OpenID 发送文本私聊，AppID、AppSecret、OpenID 都从 `.env` 读取。
+
+## 开源数据边界
+
+仓库只提交代码、文档、测试、`.env.example` 和 `config.example.yaml`。真实运行数据全部保留在本地，不应提交：
+
+- `.env`：真实 CPA 地址、Management Key、机器人密钥。
+- `config.yaml`：本机运行配置，可能包含私有开关或路径。
+- `data/monitor.db`：SQLite 数据库，包含账号状态、额度快照、401 记录。
+- `data/reports/`：生成的 HTML/PNG 报告，可能包含邮箱和额度数据。
+
+数据库表结构由程序启动时自动创建和迁移，不需要提交空数据库；其他人拉取项目后复制示例配置并运行即可生成自己的本地数据。
 
 ## 架构职责
 
@@ -142,11 +166,35 @@ uv run cpa-monitor --config config.yaml run
 - `infrastructure/http`：使用 `httpx` 请求目标 HTTP JSON 接口。
 - `infrastructure/storage`：使用 SQLite 保存历史快照和告警静默状态。
 - `infrastructure/reporting`：先生成 HTML 报表，再用 Playwright/Chromium 截图为 PNG。
-- `infrastructure/notify`：调用 OneBot HTTP API 推送文字和图片。
+- `infrastructure/notify`：调用 QQ 官方 Bot API 或 OneBot HTTP API 推送通知。
 
-## QQ OneBot
+## QQ 通知
 
-推荐将 QQ 侧独立部署为 NapCatQQ/OneBot 11 网关。CPA Monitor 只调用 OneBot HTTP API：
+项目默认开启控制台通知，不配置机器人也可以看到监控输出。如果要额外使用 QQ 官方机器人私聊通知，创建机器人后，把 `AppID`、`AppSecret` 和你的 `OpenID` 写入本地 `.env`：
+
+```env
+QQBOT_APP_ID=your-qqbot-app-id
+QQBOT_APP_SECRET=your-qqbot-app-secret
+QQBOT_OPENID=your-qq-openid
+```
+
+然后在 `config.yaml` 中启用：
+
+```yaml
+notifications:
+  qqbot:
+    enabled: true
+```
+
+当前 QQBot 通道先支持文本告警和报表生成提醒。图片直发、群通知可以后续扩展。
+
+配置完成后可以先发一条测试私聊：
+
+```bash
+python scripts/dev.py notify --message "CPA Monitor 通知测试"
+```
+
+如果你使用 NapCatQQ/OneBot 11 网关，CPA Monitor 也保留 OneBot HTTP API：
 
 - 群消息：`/send_group_msg`
 - 私聊：`/send_private_msg`

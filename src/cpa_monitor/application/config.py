@@ -44,6 +44,8 @@ class TargetConfig:
     base_url: str = ""
     method: str = "GET"
     cron: str = "0 */30 * * * *"
+    delay_min_seconds: float = 1
+    delay_max_seconds: float = 3
     headers: dict[str, str] = field(default_factory=dict)
     body: dict[str, Any] | None = None
     json_paths: JsonPaths = field(default_factory=JsonPaths)
@@ -53,6 +55,7 @@ class TargetConfig:
 
 @dataclass(frozen=True)
 class OneBotConfig:
+    enabled: bool = False
     endpoint: str = "http://127.0.0.1:3000"
     access_token: str = ""
     retry_count: int = 2
@@ -61,17 +64,42 @@ class OneBotConfig:
 
 
 @dataclass(frozen=True)
+class QqBotConfig:
+    enabled: bool = False
+    app_id: str = ""
+    app_secret: str = ""
+    openid: str = ""
+    token_url: str = "https://bots.qq.com/app/getAppAccessToken"
+    api_base: str = "https://api.sgroup.qq.com"
+    retry_count: int = 2
+
+
+@dataclass(frozen=True)
+class ConsoleConfig:
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     timezone: str = "Asia/Shanghai"
     database_url: str = "sqlite:///data/monitor.db"
     report_dir: str = "data/reports"
-    report_cron: str = "0 */30 * * * *"
+    report_cron: str = "0 0 * * * *"
+    report_hours: int = 1
+    report_detail_mode: str = "latest"
+    full_report_crons: tuple[str, ...] = field(
+        default_factory=lambda: ("0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *")
+    )
+    full_report_hours: int = 6
+    full_report_detail_mode: str = "all"
 
 
 @dataclass(frozen=True)
 class MonitorConfig:
     app: AppConfig
+    console: ConsoleConfig
     onebot: OneBotConfig
+    qqbot: QqBotConfig
     targets: tuple[TargetConfig, ...]
 
 
@@ -140,20 +168,60 @@ def _expand_env(value: Any) -> Any:
 
 
 def _parse_config(data: dict[str, Any]) -> MonitorConfig:
-    app = AppConfig(**data.get("app", {}))
+    app = _parse_app(data.get("app", {}))
+    if app.report_hours <= 0 or app.full_report_hours <= 0:
+        raise ValueError("report_hours and full_report_hours must be positive.")
+    if app.report_detail_mode not in {"latest", "all", "none"}:
+        raise ValueError("report_detail_mode must be one of: latest, all, none.")
+    if app.full_report_detail_mode not in {"latest", "all", "none"}:
+        raise ValueError("full_report_detail_mode must be one of: latest, all, none.")
     notifications = data.get("notifications", {})
     onebot_data = notifications.get("onebot", {})
     onebot = OneBotConfig(
+        enabled=bool(onebot_data.get("enabled", False)),
         endpoint=onebot_data.get("endpoint", "http://127.0.0.1:3000").rstrip("/"),
         access_token=onebot_data.get("access_token", ""),
         retry_count=int(onebot_data.get("retry_count", 2)),
         group_ids=tuple(str(item) for item in onebot_data.get("group_ids", [])),
         private_user_ids=tuple(str(item) for item in onebot_data.get("private_user_ids", [])),
     )
+    qqbot_data = notifications.get("qqbot", {})
+    qqbot = QqBotConfig(
+        enabled=bool(qqbot_data.get("enabled", False)),
+        app_id=str(qqbot_data.get("app_id", "")),
+        app_secret=str(qqbot_data.get("app_secret", "")),
+        openid=str(qqbot_data.get("openid", "")),
+        token_url=str(qqbot_data.get("token_url", "https://bots.qq.com/app/getAppAccessToken")),
+        api_base=str(qqbot_data.get("api_base", "https://api.sgroup.qq.com")).rstrip("/"),
+        retry_count=int(qqbot_data.get("retry_count", 2)),
+    )
+    console_data = notifications.get("console", {})
+    console = ConsoleConfig(enabled=bool(console_data.get("enabled", True)))
     targets = tuple(_parse_target(item) for item in data.get("targets", []))
     if not targets:
         raise ValueError("At least one target is required.")
-    return MonitorConfig(app=app, onebot=onebot, targets=targets)
+    return MonitorConfig(app=app, console=console, onebot=onebot, qqbot=qqbot, targets=targets)
+
+
+def _parse_app(data: dict[str, Any]) -> AppConfig:
+    if not isinstance(data, dict):
+        raise ValueError("app must be a mapping.")
+    app_data = dict(data)
+    if "full_report_crons" in app_data:
+        crons = app_data["full_report_crons"]
+    elif "full_report_cron" in app_data:
+        crons = [app_data.pop("full_report_cron")]
+    else:
+        crons = None
+    app_data.pop("full_report_crons", None)
+    app = AppConfig(**app_data)
+    if crons is not None:
+        if isinstance(crons, str):
+            crons = [crons]
+        if not isinstance(crons, (list, tuple)) or not crons:
+            raise ValueError("full_report_crons must be a non-empty list.")
+        app = AppConfig(**{**app.__dict__, "full_report_crons": tuple(str(item) for item in crons)})
+    return app
 
 
 def _parse_target(data: dict[str, Any]) -> TargetConfig:
@@ -168,6 +236,8 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
         base_url=str(data.get("base_url", "")),
         method=str(data.get("method", "GET")).upper(),
         cron=str(data.get("cron", "0 */30 * * * *")),
+        delay_min_seconds=float(data.get("delay_min_seconds", 1)),
+        delay_max_seconds=float(data.get("delay_max_seconds", 3)),
         headers={str(k): str(v) for k, v in data.get("headers", {}).items()},
         body=data.get("body"),
         json_paths=paths,
@@ -193,6 +263,14 @@ def _parse_dynamic_schedule(data: dict[str, Any]) -> DynamicSchedule:
 
 
 def _validate_config(config: MonitorConfig) -> None:
+    if config.qqbot.enabled:
+        if _is_placeholder(config.qqbot.app_id, {"your-qqbot-app-id"}):
+            raise ValueError("QQBot notification is enabled but QQBOT_APP_ID is not configured in .env.")
+        if _is_placeholder(config.qqbot.app_secret, {"your-qqbot-app-secret"}):
+            raise ValueError("QQBot notification is enabled but QQBOT_APP_SECRET is not configured in .env.")
+        if _is_placeholder(config.qqbot.openid, {"your-qq-openid"}):
+            raise ValueError("QQBot notification is enabled but QQBOT_OPENID is not configured in .env.")
+
     for target in config.targets:
         if target.collector.lower() != "cli_proxy_codex":
             continue

@@ -32,6 +32,7 @@ CPA_MANAGEMENT_KEY=your-management-key
 Run one collection pass:
 
 ```bash
+python scripts/dev.py credentials
 python scripts/dev.py collect
 ```
 
@@ -53,8 +54,10 @@ cp config.example.yaml config.yaml
 - `targets[].collector`: The default template uses `cli_proxy_codex`, which reads credentials and collects Codex quota through the CLIProxyAPI management APIs.
 - `targets[].base_url`: The default template uses `${CPA_ENDPOINT}`. Never commit your real endpoint.
 - `targets[].headers.Authorization`: The default template uses `Bearer ${CPA_MANAGEMENT_KEY}`. The app automatically loads a sibling `.env` file and also supports system environment variables. Never commit the real key.
-- `notifications.onebot.endpoint`: NapCatQQ/OneBot HTTP endpoint.
-- `notifications.onebot.group_ids` or `private_user_ids`: QQ recipients.
+- `targets[].delay_min_seconds` / `delay_max_seconds`: Full collection queries credentials sequentially and waits a random delay between credentials. The default is 1 to 3 seconds to avoid concurrent quota checks.
+- `notifications.console.enabled`: Enabled by default. Alerts and report notices are printed to the console.
+- `notifications.qqbot.enabled`: Set it to `true` for official QQ Bot private notifications, then fill `QQBOT_APP_ID`, `QQBOT_APP_SECRET`, and `QQBOT_OPENID` in `.env`.
+- `notifications.onebot.enabled`: Set it to `true` only when using NapCatQQ/OneBot, then fill endpoint and recipients.
 
 3. Start the service:
 
@@ -90,6 +93,8 @@ python scripts/dev.py run
 Common development commands:
 
 ```bash
+python scripts/dev.py credentials
+python scripts/dev.py notify --message "CPA Monitor notification test"
 python scripts/dev.py collect
 python scripts/dev.py report
 python scripts/dev.py test
@@ -113,7 +118,10 @@ python scripts/dev.py run
 
 ```bash
 uv run cpa-monitor --config config.yaml collect-once
-uv run cpa-monitor --config config.yaml report --hours 3
+uv run cpa-monitor --config config.yaml credentials
+uv run cpa-monitor --config config.yaml notify-test --message "CPA Monitor notification test"
+uv run cpa-monitor --config config.yaml report
+uv run cpa-monitor --config config.yaml report --hours 6 --detail-mode all
 uv run cpa-monitor --config config.yaml run
 ```
 
@@ -124,14 +132,30 @@ uv run cpa-monitor --config config.yaml run
 - `app.timezone`: Time zone for schedules and reports.
 - `app.database_url`: SQLite database URL. The first version supports `sqlite:///...` only.
 - `app.report_dir`: Output directory for HTML/PNG reports.
-- `app.report_cron`: Cron schedule for summary reports.
+- `app.report_cron` / `app.report_hours` / `app.report_detail_mode`: hourly report schedule, window, and detail mode. Defaults to a short hourly report with only the latest detail block.
+- `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`: full report schedules, window, and detail mode. Defaults to 07:30, 12:10, 19:10, and 23:30 daily, summarizing the last 6 hours without triggering collection.
+- 401 account analysis is deduplicated by account name and date. An account reported once today will not be repeated in later hourly/full reports until the next day.
 - `targets[].collector`: Collector type. `cli_proxy_codex` calls CLIProxyAPI `/auth-files` and `/api-call`; omitting it keeps the original `http_json` behavior.
 - `targets[].base_url`: CLIProxyAPI endpoint. The example reads it from `CPA_ENDPOINT`; put the real endpoint only in your local `.env` or runtime environment.
 - `targets[].headers.Authorization`: Authentication header in the `Bearer <Management Key>` format. The example reads it from `CPA_MANAGEMENT_KEY`; put the real key only in your local `.env` or runtime environment.
+- `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
 - `targets[].cron`: Polling Cron for each target.
 - `targets[].dynamic_schedule`: Optional dynamic polling interval. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
 - `targets[].json_paths`: Required only by the `http_json` collector. It maps response JSON into total, available, error counts, and type details.
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
+- `notifications.console`: Console notification settings. Enabled by default for local debugging and non-bot deployments.
+- `notifications.qqbot`: Official QQ Bot notification settings. The first version sends text-only private messages to one OpenID, with AppID, AppSecret, and OpenID read from `.env`.
+
+## Open Source Data Boundary
+
+The repository should only commit source code, docs, tests, `.env.example`, and `config.example.yaml`. Real runtime data stays local and must not be committed:
+
+- `.env`: real CPA endpoint, Management Key, and bot secrets.
+- `config.yaml`: local runtime config that may contain private switches or paths.
+- `data/monitor.db`: SQLite database with account status, quota snapshots, and 401 records.
+- `data/reports/`: generated HTML/PNG reports that may include emails and quota data.
+
+The database schema is created and migrated by the application at runtime, so there is no need to commit an empty database. New users can copy the example config and generate their own local data.
 
 ## Architecture Responsibilities
 
@@ -140,11 +164,35 @@ uv run cpa-monitor --config config.yaml run
 - `infrastructure/http`: calls target HTTP JSON APIs with `httpx`.
 - `infrastructure/storage`: stores snapshots and alert silence state in SQLite.
 - `infrastructure/reporting`: renders HTML reports, then uses Playwright/Chromium to capture PNG images.
-- `infrastructure/notify`: sends text and image messages through the OneBot HTTP API.
+- `infrastructure/notify`: sends notifications through the official QQ Bot API or OneBot HTTP API.
 
-## QQ OneBot
+## QQ Notifications
 
-Run QQ integration as a separate NapCatQQ/OneBot 11 gateway. CPA Monitor only calls the OneBot HTTP API:
+Console notification is enabled by default, so the monitor works without any bot configuration. To additionally use official QQ Bot private notification, put `AppID`, `AppSecret`, and your `OpenID` in local `.env`:
+
+```env
+QQBOT_APP_ID=your-qqbot-app-id
+QQBOT_APP_SECRET=your-qqbot-app-secret
+QQBOT_OPENID=your-qq-openid
+```
+
+Then enable it in `config.yaml`:
+
+```yaml
+notifications:
+  qqbot:
+    enabled: true
+```
+
+The QQBot channel currently supports text alerts and report-ready notices. Image sending and group notifications can be added later.
+
+After configuration, send a test private message:
+
+```bash
+python scripts/dev.py notify --message "CPA Monitor notification test"
+```
+
+If you use a NapCatQQ/OneBot 11 gateway, CPA Monitor still supports OneBot HTTP APIs:
 
 - Group messages: `/send_group_msg`
 - Private messages: `/send_private_msg`

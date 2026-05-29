@@ -47,6 +47,55 @@ urgent_remaining_percent = 15
     )
 
 
+def test_load_config_accepts_report_modes(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[app]
+report_cron = "0 0 * * * *"
+report_hours = 1
+report_detail_mode = "latest"
+full_report_crons = ["0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *"]
+full_report_hours = 6
+full_report_detail_mode = "all"
+
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.app.report_hours == 1
+    assert config.app.report_detail_mode == "latest"
+    assert config.app.full_report_crons == ("0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *")
+    assert config.app.full_report_hours == 6
+    assert config.app.full_report_detail_mode == "all"
+
+
+def test_load_config_accepts_legacy_single_full_report_cron(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[app]
+full_report_cron = "0 0 */6 * * *"
+
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.app.full_report_crons == ("0 0 */6 * * *",)
+
+
 def test_load_config_reads_sibling_env_file(tmp_path, monkeypatch):
     monkeypatch.delenv("CPA_MANAGEMENT_KEY", raising=False)
     monkeypatch.delenv("CPA_ENDPOINT", raising=False)
@@ -125,6 +174,39 @@ Authorization = "Bearer ${CPA_MANAGEMENT_KEY}"
     )
 
     with pytest.raises(ValueError, match="CPA_MANAGEMENT_KEY"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_enabled_qqbot_placeholder_secret(tmp_path, monkeypatch):
+    monkeypatch.delenv("QQBOT_APP_ID", raising=False)
+    monkeypatch.delenv("QQBOT_APP_SECRET", raising=False)
+    monkeypatch.delenv("QQBOT_OPENID", raising=False)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[notifications.qqbot]
+enabled = true
+app_id = "${QQBOT_APP_ID}"
+app_secret = "${QQBOT_APP_SECRET}"
+openid = "${QQBOT_OPENID}"
+
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        """
+QQBOT_APP_ID=app-id
+QQBOT_APP_SECRET=your-qqbot-app-secret
+QQBOT_OPENID=openid
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="QQBOT_APP_SECRET"):
         load_config(config_path)
 
 

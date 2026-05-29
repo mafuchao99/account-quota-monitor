@@ -41,6 +41,8 @@ class SqliteSnapshotStore:
               total integer not null,
               remaining_5h_percent real,
               remaining_7d_percent real,
+              reset_5h_at text,
+              reset_7d_at text,
               unauthorized integer not null,
               other_errors integer not null
             );
@@ -51,9 +53,24 @@ class SqliteSnapshotStore:
               last_sent_at text not null,
               primary key (target_id, rule_key)
             );
+
+            create table if not exists unauthorized_report_state (
+              type_name text not null,
+              report_date text not null,
+              first_reported_at text not null,
+              primary key (type_name, report_date)
+            );
             """
         )
+        self._ensure_type_metric_columns()
         self.conn.commit()
+
+    def _ensure_type_metric_columns(self) -> None:
+        columns = {row["name"] for row in self.conn.execute("pragma table_info(type_metrics)").fetchall()}
+        if "reset_5h_at" not in columns:
+            self.conn.execute("alter table type_metrics add column reset_5h_at text")
+        if "reset_7d_at" not in columns:
+            self.conn.execute("alter table type_metrics add column reset_7d_at text")
 
     def save_snapshot(self, snapshot: MetricSnapshot) -> int:
         cursor = self.conn.execute(
@@ -78,8 +95,8 @@ class SqliteSnapshotStore:
         self.conn.executemany(
             """
             insert into type_metrics
-              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, unauthorized, other_errors)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
+              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, reset_5h_at, reset_7d_at, unauthorized, other_errors)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -89,6 +106,8 @@ class SqliteSnapshotStore:
                     metric.total,
                     metric.remaining_5h_percent,
                     metric.remaining_7d_percent,
+                    metric.reset_5h_at.isoformat() if metric.reset_5h_at else None,
+                    metric.reset_7d_at.isoformat() if metric.reset_7d_at else None,
                     metric.unauthorized,
                     metric.other_errors,
                 )
@@ -111,6 +130,36 @@ class SqliteSnapshotStore:
             (since.isoformat(),),
         ).fetchall()
         return [self._row_to_snapshot(row) for row in rows]
+
+    def all_snapshots(self) -> list[MetricSnapshot]:
+        rows = self.conn.execute("select * from snapshots order by captured_at asc").fetchall()
+        return [self._row_to_snapshot(row) for row in rows]
+
+    def unreported_unauthorized_names(self, names: set[str], report_date: str) -> set[str]:
+        if not names:
+            return set()
+        placeholders = ",".join("?" for _ in names)
+        rows = self.conn.execute(
+            f"""
+            select type_name from unauthorized_report_state
+            where report_date = ? and type_name in ({placeholders})
+            """,
+            (report_date, *sorted(names)),
+        ).fetchall()
+        reported = {row["type_name"] for row in rows}
+        return names - reported
+
+    def mark_unauthorized_reported(self, names: set[str], report_date: str, now: datetime) -> None:
+        if not names:
+            return
+        self.conn.executemany(
+            """
+            insert or ignore into unauthorized_report_state (type_name, report_date, first_reported_at)
+            values (?, ?, ?)
+            """,
+            [(name, report_date, now.isoformat()) for name in sorted(names)],
+        )
+        self.conn.commit()
 
     def should_send_alert(self, target_id: str, rule_key: str, now: datetime, silence_minutes: int) -> bool:
         row = self.conn.execute(
@@ -154,6 +203,8 @@ class SqliteSnapshotStore:
                     total=item["total"],
                     remaining_5h_percent=item["remaining_5h_percent"],
                     remaining_7d_percent=item["remaining_7d_percent"],
+                    reset_5h_at=_datetime_or_none(item["reset_5h_at"]),
+                    reset_7d_at=_datetime_or_none(item["reset_7d_at"]),
                     unauthorized=item["unauthorized"],
                     other_errors=item["other_errors"],
                 )
@@ -167,3 +218,7 @@ def _sqlite_path(database_url: str) -> Path:
     if not database_url.startswith("sqlite:///"):
         raise ValueError("Only sqlite:/// database URLs are supported in v1.")
     return Path(database_url.removeprefix("sqlite:///"))
+
+
+def _datetime_or_none(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None

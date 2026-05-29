@@ -12,6 +12,8 @@ class TypeMetric:
     total: int
     remaining_5h_percent: float | None = None
     remaining_7d_percent: float | None = None
+    reset_5h_at: datetime | None = None
+    reset_7d_at: datetime | None = None
     unauthorized: int = 0
     other_errors: int = 0
 

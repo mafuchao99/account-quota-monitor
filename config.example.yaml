@@ -1,26 +1,77 @@
 app:
+  # 调度、报表展示和“几分钟后恢复”等时间计算使用的时区。
   timezone: Asia/Shanghai
+  # SQLite 数据库路径。当前版本只支持 sqlite:/// 前缀，data/ 目录不会提交到仓库。
   database_url: sqlite:///data/monitor.db
+  # HTML/PNG 报表输出目录；程序会按日期再创建子目录，例如 data/reports/2026-05-29。
   report_dir: data/reports
-  report_cron: "0 */30 * * * *"
+  # 小时报发送 Cron。这里是每小时整点一次，支持 6 位 Cron：秒 分 时 日 月 周。
+  report_cron: "0 0 * * * *"
+  # 小时报统计最近多少小时的数据。默认只看最近 1 小时，图片更短。
+  report_hours: 1
+  # 小时报分时明细模式：latest=只展示最新一次，all=展示窗口内全部，none=不展示。
+  report_detail_mode: latest
+  # 完整报发送 Cron 列表。这里只做数据总结，不触发采集；采集仍由 targets 的 cron/dynamic_schedule 控制。
+  # 默认每天 07:30、12:10、19:10、23:30 各发一次。
+  full_report_crons:
+    - "0 30 7 * * *"
+    - "0 10 12 * * *"
+    - "0 10 19 * * *"
+    - "0 30 23 * * *"
+  # 完整报统计最近多少小时的数据。
+  full_report_hours: 6
+  # 完整报默认展示窗口内全部分时明细。
+  full_report_detail_mode: all
 
 notifications:
+  # 控制台通知，默认开启。适合本地调试，也适合暂时不接机器人时查看监控结果。
+  console:
+    enabled: true
+  # OneBot/NapCatQQ 通知，可选。启用后会调用 OneBot HTTP API 发送群消息或私聊。
   onebot:
+    enabled: false
+    # NapCatQQ/OneBot HTTP 服务地址。
     endpoint: http://127.0.0.1:3000
+    # OneBot 访问令牌；没有配置鉴权时保持空字符串。
     access_token: ""
     retry_count: 2
-    group_ids: ["123456789"]
+    # 群号列表。enabled 为 true 且列表非空时发送群消息。
+    group_ids: []
+    # 私聊 QQ 号列表。enabled 为 true 且列表非空时发送私聊。
     private_user_ids: []
+  # QQ 官方 Bot 通知，可选。当前只支持给一个 OpenID 发送文本私聊。
+  qqbot:
+    enabled: false
+    # 以下三个值都从 .env 读取，真实值不要写入仓库。
+    app_id: ${QQBOT_APP_ID}
+    app_secret: ${QQBOT_APP_SECRET}
+    openid: ${QQBOT_OPENID}
+    # 官方 Bot 获取 access_token 的接口，一般不需要改。
+    token_url: https://bots.qq.com/app/getAppAccessToken
+    # 官方 Bot OpenAPI 地址，一般不需要改。
+    api_base: https://api.sgroup.qq.com
+    retry_count: 2
 
 targets:
   - id: codex-quota
     name: Codex 额度
+    # 采集器类型。cli_proxy_codex 会通过 CLIProxyAPI 管理端拉凭证并代理查询 Codex 额度。
+    # 不配置时默认 http_json，适合普通 HTTP JSON 接口。
     collector: cli_proxy_codex
+    # CLIProxyAPI 地址，从 .env 的 CPA_ENDPOINT 读取。可以填裸域名或带 /v0/management 的管理端地址。
     base_url: ${CPA_ENDPOINT}
+    # 固定 Cron 采集频率。启用 dynamic_schedule 后，采集使用动态 interval，这里作为兼容配置保留。
     cron: "0 */30 * * * *"
+    # 全量采集时按凭证顺序一个个查询，两个凭证之间随机等待，避免并发触发风控。
+    # quota-one 单凭证查询不受这个等待影响。
+    delay_min_seconds: 1
+    delay_max_seconds: 3
     dynamic_schedule:
+      # 开启后按 normal/urgent 两种间隔动态调度，而不是按 cron 固定调度。
       enabled: true
+      # 正常情况下每 30 分钟采集一次。
       normal_interval_minutes: 30
+      # 当剩余额度低于 urgent_remaining_percent 时，缩短为每 10 分钟采集一次。
       urgent_interval_minutes: 10
       # 不配置时默认沿用 thresholds.remaining_percent。
       urgent_remaining_percent: 20
@@ -29,8 +80,13 @@ targets:
       # 开源仓库里不要提交真实接口地址或 Management Key。
       Authorization: "Bearer ${CPA_MANAGEMENT_KEY}"
     thresholds:
+      # 可用账号数量相比上一次下降多少时告警。
       available_drop: 1
+      # 401/403 鉴权失败数量达到多少时告警。
       unauthorized: 1
+      # 其他错误数量达到多少时告警。
       other_errors: 1
+      # 总可用比例低于多少百分比时告警；dynamic_schedule 未配置紧张阈值时也会沿用它。
       remaining_percent: 20
+      # 同一类告警的静默时间，避免重复刷屏。
       silence_minutes: 60
