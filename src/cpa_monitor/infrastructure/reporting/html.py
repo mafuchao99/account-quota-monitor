@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
-from cpa_monitor.domain.summary import format_snapshot_summary, recovery_events
+from cpa_monitor.domain.summary import average_percent, format_snapshot_summary, mask_display_name, quota_pool_metrics, recovery_events
 
 
 class HtmlImageReporter:
@@ -208,7 +208,7 @@ def _type_row(metric: TypeMetric, captured_at: datetime) -> str:
     reset_5h = "-" if reset_5h_at is None else f"{reset_5h_at:%H:%M}"
     return (
         "<tr>"
-        f"<td class='ok'>{html.escape(metric.type_name)}</td>"
+        f"<td class='ok'>{html.escape(mask_display_name(metric.type_name))}</td>"
         f"<td>{metric.available}/{metric.total}</td>"
         f"<td>{remaining_5h}</td>"
         f"<td>{remaining_7d}</td>"
@@ -253,7 +253,7 @@ def _unauthorized_analysis_block(
 def _unauthorized_analysis_row(item: UnauthorizedAccountAnalysis) -> str:
     return (
         "<tr>"
-        f"<td class='danger'>{html.escape(item.type_name)}</td>"
+        f"<td class='danger'>{html.escape(mask_display_name(item.type_name))}</td>"
         f"<td>{_duration_text(item.first_success_at, item.unauthorized_at)}</td>"
         f"<td>{_time_text(item.first_success_at)}</td>"
         f"<td>{_time_text(item.last_success_at)}</td>"
@@ -307,10 +307,10 @@ def _unauthorized_account_analyses(
 
 
 def _html_total_quota(snapshot: MetricSnapshot) -> str:
-    metrics = [item for item in snapshot.type_metrics if item.available > 0]
-    five = _average_percent(item.remaining_5h_percent for item in metrics)
-    seven = _average_percent(item.remaining_7d_percent for item in metrics)
-    recoveries = recovery_events(metrics, snapshot.captured_at)[:3]
+    metrics = quota_pool_metrics(snapshot.type_metrics)
+    five = average_percent(item.remaining_5h_percent for item in metrics)
+    seven = average_percent(item.remaining_7d_percent for item in metrics)
+    recoveries = recovery_events(snapshot.type_metrics, snapshot.captured_at)[:3]
     if recoveries:
         recovery_html = "\n".join(f"<li>{html.escape(item)}</li>" for item in recoveries)
     else:
@@ -333,14 +333,6 @@ def _html_total_quota(snapshot: MetricSnapshot) -> str:
           {recovery_html}
         </ul>
       </div>"""
-
-
-def _average_percent(values) -> str:
-    known = [value for value in values if value is not None]
-    if not known:
-        return "-"
-    return f"{sum(known) / len(known):.2f}%"
-
 
 def _used_percent(remaining_percent: float | None) -> float | None:
     return None if remaining_percent is None else max(0.0, 100.0 - remaining_percent)
