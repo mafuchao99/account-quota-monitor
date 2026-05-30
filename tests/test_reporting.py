@@ -104,7 +104,7 @@ def test_report_detail_summary_shows_unknown_recovery_time():
         target_id="codex",
         target_name="Codex",
         captured_at=captured_at,
-        available=1,
+        available=2,
         total=1,
         disabled=0,
         unauthorized=0,
@@ -131,7 +131,7 @@ def test_report_includes_unauthorized_account_analysis_from_history():
         target_id="codex",
         target_name="Codex",
         captured_at=datetime(2026, 5, 29, 9, 0, tzinfo=tz),
-        available=1,
+        available=2,
         total=1,
         type_metrics=(
             TypeMetric(
@@ -206,32 +206,99 @@ def test_report_omits_unauthorized_account_analysis_without_401():
     assert "401 账号分析" not in html
 
 
-def test_report_detail_mode_latest_only_renders_latest_detail_block():
+def test_report_detail_mode_latest_renders_compact_hourly_report():
     tz = ZoneInfo("Asia/Shanghai")
     first = MetricSnapshot(
         target_id="codex",
         target_name="Codex",
         captured_at=datetime(2026, 5, 29, 12, 0, tzinfo=tz),
-        available=1,
-        total=1,
-        type_metrics=(TypeMetric(type_name="first@example.com", available=1, total=1),),
+        available=2,
+        total=5,
+        type_metrics=(
+            TypeMetric(type_name="latest@example.com", available=1, total=1, remaining_5h_percent=90, remaining_7d_percent=90),
+            TypeMetric(type_name="recover@example.com", available=0, total=1, remaining_5h_percent=30, remaining_7d_percent=80),
+            TypeMetric(type_name="weekly-empty@example.com", available=0, total=1, remaining_5h_percent=99, remaining_7d_percent=0),
+        ),
     )
     latest = MetricSnapshot(
         target_id="codex",
         target_name="Codex",
         captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
-        available=1,
-        total=1,
-        type_metrics=(TypeMetric(type_name="latest@example.com", available=1, total=1),),
+        available=2,
+        total=5,
+        unauthorized=1,
+        type_metrics=(
+            TypeMetric(
+                type_name="latest@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=45,
+                remaining_7d_percent=91,
+                reset_5h_at=datetime(2026, 5, 29, 17, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="soon@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=50,
+                remaining_7d_percent=92,
+                reset_5h_at=datetime(2026, 5, 29, 14, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="recover@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=80,
+                reset_5h_at=datetime(2026, 5, 29, 13, 30, tzinfo=tz),
+            ),
+            TypeMetric(type_name="weekly-empty@example.com", available=0, total=1, remaining_5h_percent=99, remaining_7d_percent=0),
+            TypeMetric(type_name="bad@example.com", available=0, total=1, unauthorized=1),
+        ),
     )
 
     html = render_report_html([first, latest], latest.captured_at, detail_mode="latest")
 
+    assert "Codex 小时报表" in html
     assert "总览趋势" not in html
-    assert "分时明细" in html
+    assert "分时明细" not in html
+    assert "【当前状态】" in html
+    assert "可用账号：2/5" in html
+    assert "5h 总额度：48.50%" in html
+    assert "7d 总额度：65.75%" in html
+    assert "401 异常：1" in html
+    assert "预计耗尽" not in html
+    assert "【当前可用账号】" in html
     assert "la***st@example.com" in html
+    assert "预计 17:00 恢复" in html
+    assert html.index("so***@example.com") < html.index("la***st@example.com")
+    assert "【即将恢复】" in html
+    assert "re***er@example.com：13:30，恢复后 +25%" in html
+    assert "【额度耗尽】" in html
+    assert "we***ty@example.com：7d 已耗尽" in html
+    assert "【异常账号】" in html
+    assert "ba***@example.com：401 未授权" in html
     assert "latest@example.com" not in html
-    assert "first@example.com" not in html
+
+
+def test_hourly_report_always_lists_current_401_account():
+    tz = ZoneInfo("Asia/Shanghai")
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="Codex",
+        captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
+        available=0,
+        total=1,
+        unauthorized=1,
+        type_metrics=(TypeMetric(type_name="bad@example.com", available=0, total=1, unauthorized=1),),
+    )
+
+    html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest", unauthorized_names=set())
+
+    assert "401 异常：1" in html
+    assert "【异常账号】" in html
+    assert "ba***@example.com：401 未授权" in html
+    assert "bad@example.com" not in html
 
 
 def test_report_detail_mode_none_omits_detail_section():

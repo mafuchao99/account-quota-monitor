@@ -92,15 +92,7 @@ python scripts/dev.py setup
 python scripts/dev.py run
 ```
 
-常用开发命令：
-
-```bash
-python scripts/dev.py credentials
-python scripts/dev.py notify --message "CPA Monitor 通知测试"
-python scripts/dev.py collect
-python scripts/dev.py report
-python scripts/dev.py test
-```
+更多本地命令见下方“常用命令”。
 
 macOS/Linux 如果安装了 `make`，也可以使用快捷命令：
 
@@ -118,14 +110,34 @@ python scripts/dev.py run
 
 ## 常用命令
 
+本地开发优先使用 `scripts/dev.py`，它会自动带上 `--config config.yaml`：
+
+| 命令 | 用途 | 是否请求 CPA |
+| --- | --- | --- |
+| `python scripts/dev.py setup` | 安装依赖、安装 Playwright Chromium，并在缺少本地配置时复制示例文件。 | 否 |
+| `python scripts/dev.py run` | 启动常驻监控调度；会按配置定时采集、生成小时报、发送通知。 | 是，按采集调度请求 |
+| `python scripts/dev.py collect` | 立即执行一次全量采集，按凭证顺序查询额度并写入 SQLite。 | 是 |
+| `python scripts/dev.py credentials` | 读取 CLIProxyAPI 管理端凭证列表，查看 active、disabled、unavailable、auth_index 等状态。 | 是，只请求管理端凭证列表 |
+| `python scripts/dev.py quota-one --match gmail` | 只查询一个匹配的凭证，适合排查单个账号额度或 401。 | 是，只查一个凭证 |
+| `python scripts/dev.py report` | 生成并发送小时报；只读取本地 SQLite 最近 `app.report_hours` 的快照。 | 否 |
+| `python scripts/dev.py report --hours 6 --detail-mode all` | 手动查看 6 小时额度汇总/完整报；不受 `full_report_enabled` 影响。 | 否 |
+| `python scripts/dev.py notify --message "CPA Monitor 通知测试"` | 发送一条测试通知，用于验证控制台、OneBot 或 QQBot 配置。 | 否 |
+| `python scripts/dev.py test` | 运行测试。 | 否 |
+| `python scripts/dev.py clean` | 删除本地测试和构建缓存。 | 否 |
+
+也可以直接调用 CLI，适合部署脚本或临时调试：
+
 ```bash
+uv run cpa-monitor --config config.yaml run
 uv run cpa-monitor --config config.yaml collect-once
 uv run cpa-monitor --config config.yaml credentials
-uv run cpa-monitor --config config.yaml notify-test --message "CPA Monitor 通知测试"
+uv run cpa-monitor --config config.yaml quota-one --match gmail
 uv run cpa-monitor --config config.yaml report
 uv run cpa-monitor --config config.yaml report --hours 6 --detail-mode all
-uv run cpa-monitor --config config.yaml run
+uv run cpa-monitor --config config.yaml notify-test --message "CPA Monitor 通知测试"
 ```
+
+注意：`report` 只读本地数据库并生成报表，不会请求 CPA；`collect`、`run`、`credentials`、`quota-one` 会访问 CPA/CLIProxyAPI。
 
 ## 配置说明
 
@@ -135,7 +147,7 @@ uv run cpa-monitor --config config.yaml run
 - `app.database_url`：SQLite 路径，当前第一版只支持 `sqlite:///...`。
 - `app.report_dir`：HTML/PNG 报表输出目录。
 - `app.report_cron` / `app.report_hours` / `app.report_detail_mode`：小时报 Cron、统计窗口和分时明细模式；默认每小时发送最近 1 小时，只展示最新一次明细。
-- `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`：完整报 Cron 列表、统计窗口和分时明细模式；默认每天 07:30、12:10、19:10、23:30 各发送一次最近 6 小时完整明细，只做数据总结，不触发采集。
+- `app.full_report_enabled` / `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`：完整报开关、Cron 列表、统计窗口和分时明细模式；默认关闭，开启后按 07:30、12:10、19:10、23:30 发送最近 6 小时完整明细，只做数据总结，不触发采集。
 - 401 账号分析会按邮箱和日期去重；同一天已报告过的 401 账号，后续小时报/完整报不再重复展示，第二天重新统计新的 401。
 - `targets[].collector`：采集器类型。`cli_proxy_codex` 会调用 CLIProxyAPI 的 `/auth-files` 和 `/api-call`；不配置时兼容原来的 `http_json`。
 - `targets[].base_url`：CLIProxyAPI 地址。示例使用环境变量 `CPA_ENDPOINT`，真实地址写到本地 `.env` 或运行环境变量。

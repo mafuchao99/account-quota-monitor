@@ -11,8 +11,10 @@ app:
   report_hours: 1
   # 小时报分时明细模式：latest=只展示最新一次，all=展示窗口内全部，none=不展示。
   report_detail_mode: latest
-  # 完整报发送 Cron 列表。这里只做数据总结，不触发采集；采集仍由 targets 的 cron/dynamic_schedule 控制。
-  # 默认每天 07:30、12:10、19:10、23:30 各发一次。
+  # 是否开启完整报定时发送。默认关闭；开启后按 full_report_crons 发送。
+  # 完整报只做数据总结，不触发采集；采集仍由 targets 的 cron/dynamic_schedule 控制。
+  full_report_enabled: false
+  # 完整报发送 Cron 列表。默认每天 07:30、12:10、19:10、23:30 各发一次。
   full_report_crons:
     - "0 30 7 * * *"
     - "0 10 12 * * *"

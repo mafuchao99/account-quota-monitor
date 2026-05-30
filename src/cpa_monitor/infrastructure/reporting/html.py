@@ -6,7 +6,15 @@ from datetime import datetime
 from pathlib import Path
 
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
-from cpa_monitor.domain.summary import average_percent, format_snapshot_summary, mask_display_name, quota_pool_metrics, recovery_events
+from cpa_monitor.domain.summary import (
+    average_percent,
+    effective_metrics,
+    format_snapshot_summary,
+    mask_display_name,
+    quota_pool_metrics,
+    recoverable_metrics,
+    recovery_events,
+)
 
 
 class HtmlImageReporter:
@@ -41,6 +49,13 @@ class UnauthorizedAccountAnalysis:
     used_7d_percent: float | None
 
 
+@dataclass(frozen=True)
+class RecoveryItem:
+    metric: TypeMetric
+    reset_at: datetime
+    gain_percent: float
+
+
 def render_report_html(
     snapshots: list[MetricSnapshot],
     generated_at: datetime,
@@ -70,15 +85,28 @@ def render_report_html(
             "</tr>"
         )
 
-    latest_summary = _summary_block(snapshots[-1])
-    unauthorized_analysis = _unauthorized_analysis_block(snapshots, history_snapshots or snapshots, unauthorized_names)
-    trend_block = _trend_block(rows, detail_mode)
-    detail_blocks = _detail_blocks(snapshots, detail_mode)
+    if detail_mode == "latest":
+        title = "Codex 小时报表"
+        report_body = _hourly_report_block(snapshots)
+        subtitle = f"时间：{generated_at:%Y-%m-%d %H:%M}"
+    else:
+        title = "Codex 额度汇总"
+        latest_summary = _summary_block(snapshots[-1])
+        unauthorized_analysis = _unauthorized_analysis_block(snapshots, history_snapshots or snapshots, unauthorized_names)
+        trend_block = _trend_block(rows, detail_mode)
+        detail_blocks = _detail_blocks(snapshots, detail_mode)
+        report_body = f"""
+  <div class="muted">时间段：{start:%Y-%m-%d %H:%M} - {end:%Y-%m-%d %H:%M}　查询次数：{len(snapshots)}</div>
+  {latest_summary}
+  {unauthorized_analysis}
+  {trend_block}
+  {detail_blocks}"""
+        subtitle = ""
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>Codex 额度汇总</title>
+  <title>{title}</title>
   <style>
     :root {{ color-scheme: light; }}
     body {{
@@ -107,19 +135,184 @@ def render_report_html(
     .quota-recovery-list {{ margin: 0; padding-left: 20px; }}
     .quota-recovery-list li {{ margin: 2px 0; }}
     .card-body {{ padding: 18px 20px 26px; }}
+    .hourly {{ margin-top: 22px; display: grid; gap: 18px; }}
+    .hourly-section {{ padding: 18px 20px; background: white; border: 1px solid #cbd7ea; border-radius: 8px; }}
+    .hourly-title {{ margin-bottom: 10px; font-weight: 700; }}
+    .hourly-line {{ display: flex; flex-wrap: wrap; gap: 8px 22px; line-height: 1.6; }}
+    .hourly-list {{ margin: 0; padding-left: 20px; line-height: 1.65; }}
     .footer {{ margin-top: 20px; font-size: 14px; }}
   </style>
 </head>
 <body>
-  <h1>Codex 额度汇总</h1>
-  <div class="muted">时间段：{start:%Y-%m-%d %H:%M} - {end:%Y-%m-%d %H:%M}　查询次数：{len(snapshots)}</div>
-  {latest_summary}
-  {unauthorized_analysis}
-  {trend_block}
-  {detail_blocks}
+  <h1>{title}</h1>
+  {f'<div class="muted">{subtitle}</div>' if subtitle else ''}
+  {report_body}
   <div class="footer muted">Generated at {generated_at:%Y-%m-%d %H:%M:%S}</div>
 </body>
 </html>"""
+
+
+def _hourly_report_block(snapshots: list[MetricSnapshot]) -> str:
+    latest = snapshots[-1]
+    quota_metrics = quota_pool_metrics(latest.type_metrics)
+    status_items = [
+        f"可用账号：{latest.available}/{latest.total}",
+        f"5h 总额度：{average_percent(metric.remaining_5h_percent for metric in quota_metrics)}",
+        f"7d 总额度：{average_percent(metric.remaining_7d_percent for metric in quota_metrics)}",
+    ]
+    if latest.disabled:
+        status_items.append(f"禁用：{latest.disabled}")
+    if latest.unauthorized:
+        status_items.append(f"401 异常：{latest.unauthorized}")
+    if latest.other_errors:
+        status_items.append(f"其他错误：{latest.other_errors}")
+
+    recovery_items = _recovery_items(latest)
+    upcoming_recoveries = [item for item in recovery_items if item.metric.available <= 0][:3]
+    nearest_recovery = _nearest_recovery_text(upcoming_recoveries or recovery_items[:3])
+    recovery_gain = _recovery_gain_text(upcoming_recoveries or recovery_items[:3])
+    available = _available_account_block(latest)
+    upcoming = _upcoming_recovery_block(upcoming_recoveries)
+    exhausted = _exhausted_account_block(latest, {item.metric.type_name for item in upcoming_recoveries})
+    errors = _error_account_block(latest)
+
+    sections = [
+        _hourly_section("当前状态", "<div class='hourly-line'>" + "".join(f"<span>{html.escape(item)}</span>" for item in status_items) + "</div>"),
+        _hourly_section(
+            "恢复情况",
+            "<div class='hourly-line'>"
+            f"<span>最近恢复：{html.escape(nearest_recovery)}</span>"
+            f"<span>预计恢复增量：{html.escape(recovery_gain)}</span>"
+            "</div>",
+        ),
+        available,
+        upcoming,
+        exhausted,
+        errors,
+    ]
+    return "<div class='hourly'>\n" + "\n".join(section for section in sections if section) + "\n</div>"
+
+
+def _hourly_section(title: str, body: str) -> str:
+    return f"""
+  <section class="hourly-section">
+    <div class="hourly-title">【{html.escape(title)}】</div>
+    {body}
+  </section>"""
+
+
+def _available_account_block(snapshot: MetricSnapshot) -> str:
+    metrics = sorted(
+        effective_metrics(snapshot.type_metrics),
+        key=lambda metric: (_local_time(metric.reset_5h_at, snapshot.captured_at) is None, _local_time(metric.reset_5h_at, snapshot.captured_at) or datetime.max),
+    )
+    if not metrics:
+        return _hourly_section("当前可用账号", "<div class='muted'>当前没有可用账号。</div>")
+    items = []
+    for metric in metrics:
+        reset_5h_at = _local_time(metric.reset_5h_at, snapshot.captured_at)
+        reset_text = "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
+        items.append(
+            f"{mask_display_name(metric.type_name)}："
+            f"5h {_compact_percent(metric.remaining_5h_percent)}，"
+            f"7d {_compact_percent(metric.remaining_7d_percent)}，{reset_text}"
+        )
+    return _list_section("当前可用账号", items)
+
+
+def _upcoming_recovery_block(recovery_items: list[RecoveryItem]) -> str:
+    if not recovery_items:
+        return ""
+    items = [
+        f"{mask_display_name(item.metric.type_name)}：{item.reset_at:%H:%M}，恢复后 +{_compact_percent(item.gain_percent)}"
+        for item in recovery_items
+    ]
+    return _list_section("即将恢复", items)
+
+
+def _exhausted_account_block(snapshot: MetricSnapshot, recovery_names: set[str]) -> str:
+    items = []
+    for metric in snapshot.type_metrics:
+        if metric.available > 0 or metric.unauthorized > 0 or metric.other_errors > 0 or metric.type_name in recovery_names:
+            continue
+        reason = _exhausted_reason(metric)
+        if reason:
+            items.append(f"{mask_display_name(metric.type_name)}：{reason}")
+    return _list_section("额度耗尽", items)
+
+
+def _error_account_block(snapshot: MetricSnapshot) -> str:
+    items = []
+    for metric in snapshot.type_metrics:
+        if metric.unauthorized > 0:
+            items.append(f"{mask_display_name(metric.type_name)}：401 未授权")
+        if metric.other_errors > 0:
+            items.append(f"{mask_display_name(metric.type_name)}：其他错误 {metric.other_errors}")
+    return _list_section("异常账号", items)
+
+
+def _list_section(title: str, items: list[str]) -> str:
+    if not items:
+        return ""
+    body = "<ul class='hourly-list'>" + "".join(f"<li>{html.escape(item)}</li>" for item in items) + "</ul>"
+    return _hourly_section(title, body)
+
+
+def _recovery_items(snapshot: MetricSnapshot) -> list[RecoveryItem]:
+    quota_metrics = quota_pool_metrics(snapshot.type_metrics)
+    account_count = sum(1 for item in quota_metrics if item.remaining_5h_percent is not None)
+    if account_count <= 0:
+        return []
+    items = []
+    for metric in recoverable_metrics(quota_metrics):
+        if metric.reset_5h_at is None or metric.remaining_5h_percent is None:
+            continue
+        reset_at = _local_time(metric.reset_5h_at, snapshot.captured_at)
+        if reset_at is None:
+            continue
+        gain_percent = max(0.0, 100.0 - metric.remaining_5h_percent) / account_count
+        items.append(RecoveryItem(metric=metric, reset_at=reset_at, gain_percent=gain_percent))
+    return sorted(items, key=lambda item: item.reset_at)
+
+
+def _nearest_recovery_text(recovery_items: list[RecoveryItem]) -> str:
+    if not recovery_items:
+        return "暂无明确恢复时间"
+    first = recovery_items[0].reset_at
+    last = recovery_items[-1].reset_at
+    if first == last:
+        return f"{first:%H:%M}"
+    return f"{first:%H:%M} ~ {last:%H:%M}"
+
+
+def _recovery_gain_text(recovery_items: list[RecoveryItem]) -> str:
+    if not recovery_items:
+        return "-"
+    return f"+{_compact_percent(sum(item.gain_percent for item in recovery_items))}"
+
+
+def _exhausted_reason(metric: TypeMetric) -> str:
+    if metric.remaining_7d_percent is not None and metric.remaining_7d_percent <= 0:
+        return "7d 已耗尽"
+    if metric.remaining_5h_percent is not None and metric.remaining_5h_percent <= 0:
+        return "5h 已耗尽"
+    if metric.total > 0 and metric.available <= 0:
+        return "不可用"
+    return ""
+
+
+def _compact_percent(value: float | None) -> str:
+    if value is None:
+        return "-"
+    if value == round(value):
+        return f"{value:.0f}%"
+    return f"{value:.2f}%"
+
+
+def _local_time(value: datetime | None, reference: datetime) -> datetime | None:
+    if value is None:
+        return None
+    return value.astimezone(reference.tzinfo) if reference.tzinfo else value
 
 
 async def write_report(

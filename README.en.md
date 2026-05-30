@@ -133,7 +133,7 @@ uv run cpa-monitor --config config.yaml run
 - `app.database_url`: SQLite database URL. The first version supports `sqlite:///...` only.
 - `app.report_dir`: Output directory for HTML/PNG reports.
 - `app.report_cron` / `app.report_hours` / `app.report_detail_mode`: hourly report schedule, window, and detail mode. Defaults to a short hourly report with only the latest detail block.
-- `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`: full report schedules, window, and detail mode. Defaults to 07:30, 12:10, 19:10, and 23:30 daily, summarizing the last 6 hours without triggering collection.
+- `app.full_report_enabled` / `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`: full report toggle, schedules, window, and detail mode. Disabled by default; when enabled, it sends the last 6-hour full detail report at 07:30, 12:10, 19:10, and 23:30 without triggering collection.
 - 401 account analysis is deduplicated by account name and date. An account reported once today will not be repeated in later hourly/full reports until the next day.
 - `targets[].collector`: Collector type. `cli_proxy_codex` calls CLIProxyAPI `/auth-files` and `/api-call`; omitting it keeps the original `http_json` behavior.
 - `targets[].base_url`: CLIProxyAPI endpoint. The example reads it from `CPA_ENDPOINT`; put the real endpoint only in your local `.env` or runtime environment.

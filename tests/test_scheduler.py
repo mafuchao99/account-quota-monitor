@@ -55,6 +55,7 @@ def test_load_config_accepts_report_modes(tmp_path):
 report_cron = "0 0 * * * *"
 report_hours = 1
 report_detail_mode = "latest"
+full_report_enabled = true
 full_report_crons = ["0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *"]
 full_report_hours = 6
 full_report_detail_mode = "all"
@@ -71,9 +72,27 @@ url = "https://example.test"
 
     assert config.app.report_hours == 1
     assert config.app.report_detail_mode == "latest"
+    assert config.app.full_report_enabled is True
     assert config.app.full_report_crons == ("0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *")
     assert config.app.full_report_hours == 6
     assert config.app.full_report_detail_mode == "all"
+
+
+def test_full_report_schedule_is_disabled_by_default(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.app.full_report_enabled is False
 
 
 def test_load_config_accepts_legacy_single_full_report_cron(tmp_path):

@@ -87,6 +87,7 @@ class AppConfig:
     report_cron: str = "0 0 * * * *"
     report_hours: int = 1
     report_detail_mode: str = "latest"
+    full_report_enabled: bool = False
     full_report_crons: tuple[str, ...] = field(
         default_factory=lambda: ("0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *")
     )
