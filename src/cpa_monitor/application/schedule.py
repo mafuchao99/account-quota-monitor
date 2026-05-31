@@ -48,6 +48,12 @@ def collect_job_id(target: TargetConfig, index: int | None = None) -> str:
     return f"collect:{target.id}:{index}"
 
 
+def report_job_id(index: int | None = None) -> str:
+    if index is None:
+        return "report"
+    return f"report:{index}"
+
+
 def desired_collect_interval_minutes(target: TargetConfig, snapshot: MetricSnapshot) -> int | None:
     schedule = target.dynamic_schedule
     if not schedule.enabled:
@@ -67,7 +73,7 @@ class MonitorScheduler:
         self,
         timezone: tzinfo,
         targets: tuple[TargetConfig, ...],
-        report_cron: str,
+        report_crons: tuple[str, ...],
         full_report_enabled: bool,
         full_report_crons: tuple[str, ...],
         collect_callback: CollectCallback,
@@ -92,13 +98,14 @@ class MonitorScheduler:
 
         for target in targets:
             self._add_collect_job(target)
-        self.scheduler.add_job(
-            self.report_callback,
-            self.cron_trigger_cls(**cron_kwargs(report_cron), timezone=self.timezone),
-            id="report",
-            replace_existing=True,
-            max_instances=1,
-        )
+        for index, report_cron in enumerate(report_crons):
+            self.scheduler.add_job(
+                self.report_callback,
+                self.cron_trigger_cls(**cron_kwargs(report_cron), timezone=self.timezone),
+                id=report_job_id(index),
+                replace_existing=True,
+                max_instances=1,
+            )
         if full_report_enabled:
             for index, full_report_cron in enumerate(full_report_crons):
                 self.scheduler.add_job(

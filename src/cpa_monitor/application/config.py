@@ -86,6 +86,7 @@ class AppConfig:
     database_url: str = "sqlite:///data/monitor.db"
     report_dir: str = "data/reports"
     report_cron: str = "0 0 * * * *"
+    report_crons: tuple[str, ...] = ("0 0 * * * *",)
     report_hours: int = 1
     report_detail_mode: str = "latest"
     full_report_enabled: bool = False
@@ -209,21 +210,49 @@ def _parse_app(data: dict[str, Any]) -> AppConfig:
     if not isinstance(data, dict):
         raise ValueError("app must be a mapping.")
     app_data = dict(data)
-    if "full_report_crons" in app_data:
-        crons = app_data["full_report_crons"]
-    elif "full_report_cron" in app_data:
-        crons = [app_data.pop("full_report_cron")]
-    else:
-        crons = None
-    app_data.pop("full_report_crons", None)
+    report_crons = _pop_crons(app_data, "report_cron", "report_crons", "0 0 * * * *")
+    full_report_crons = _pop_crons(
+        app_data,
+        "full_report_cron",
+        "full_report_crons",
+        ("0 30 7 * * *", "0 10 12 * * *", "0 10 19 * * *", "0 30 23 * * *"),
+    )
     app = AppConfig(**app_data)
-    if crons is not None:
-        if isinstance(crons, str):
-            crons = [crons]
-        if not isinstance(crons, (list, tuple)) or not crons:
-            raise ValueError("full_report_crons must be a non-empty list.")
-        app = AppConfig(**{**app.__dict__, "full_report_crons": tuple(str(item) for item in crons)})
-    return app
+    return AppConfig(
+        **{
+            **app.__dict__,
+            "report_cron": report_crons[0],
+            "report_crons": report_crons,
+            "full_report_crons": full_report_crons,
+        }
+    )
+
+
+def _pop_crons(
+    data: dict[str, Any],
+    single_key: str,
+    list_key: str,
+    default: str | tuple[str, ...],
+) -> tuple[str, ...]:
+    has_single = single_key in data
+    has_list = list_key in data
+    if has_single and has_list:
+        raise ValueError(f"Use either app {single_key} or {list_key}, not both.")
+    if has_list:
+        raw = data.pop(list_key)
+        data.pop(single_key, None)
+    elif has_single:
+        raw = data.pop(single_key)
+    else:
+        raw = default
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ValueError(f"{list_key} must be a non-empty list.")
+    crons = tuple(str(item) for item in raw)
+    if any(not item.strip() for item in crons):
+        raise ValueError(f"{list_key} cannot contain empty values.")
+    return tuple(dict.fromkeys(crons))
 
 
 def _parse_target(data: dict[str, Any]) -> TargetConfig:

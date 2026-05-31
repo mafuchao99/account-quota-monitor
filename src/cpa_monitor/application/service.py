@@ -91,7 +91,7 @@ class MonitorService:
         scheduler = MonitorScheduler(
             timezone=self.timezone,
             targets=self.config.targets,
-            report_cron=self.config.app.report_cron,
+            report_crons=self.config.app.report_crons,
             full_report_enabled=self.config.app.full_report_enabled,
             full_report_crons=self.config.app.full_report_crons,
             collect_callback=self.collect_target,
