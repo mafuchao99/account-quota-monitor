@@ -4,9 +4,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /bin/
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     CPA_MONITOR_CONFIG=/app/config/config.yaml
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md README.en.md ./
 COPY src ./src
