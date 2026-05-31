@@ -4,6 +4,10 @@ CPA Monitor is a long-running HTTP quota monitor. It polls HTTP JSON APIs on Cro
 
 Chinese documentation: [README.md](README.md)
 
+Maintainer notes:
+
+- [Project overview (Chinese)](docs/project-overview_CN.md)
+
 ## Architecture
 
 ```text
@@ -54,7 +58,7 @@ cp config.example.yaml config.yaml
 - `targets[].collector`: The default template uses `cli_proxy_codex`, which reads credentials and collects Codex quota through the CLIProxyAPI management APIs.
 - `targets[].base_url`: The default template uses `${CPA_ENDPOINT}`. Never commit your real endpoint.
 - `targets[].headers.Authorization`: The default template uses `Bearer ${CPA_MANAGEMENT_KEY}`. The app automatically loads a sibling `.env` file and also supports system environment variables. Never commit the real key.
-- `targets[].delay_min_seconds` / `delay_max_seconds`: Full collection queries credentials sequentially and waits a random delay between credentials. The default is 1 to 3 seconds to avoid concurrent quota checks.
+- `targets[].delay_min_seconds` / `delay_max_seconds`: Full collection queries credentials sequentially and waits a random delay between credentials. The default is 5 to 10 seconds to avoid concurrent quota checks.
 - `notifications.console.enabled`: Enabled by default. Alerts and report notices are printed to the console.
 - `notifications.qqbot.enabled`: Set it to `true` for official QQ Bot private notifications, then fill `QQBOT_APP_ID`, `QQBOT_APP_SECRET`, and `QQBOT_OPENID` in `.env`.
 - `notifications.onebot.enabled`: Set it to `true` only when using NapCatQQ/OneBot, then fill endpoint and recipients.
@@ -95,6 +99,8 @@ Common development commands:
 ```bash
 python scripts/dev.py credentials
 python scripts/dev.py notify --message "CPA Monitor notification test"
+python scripts/dev.py onebot-login
+python scripts/dev.py onebot-groups
 python scripts/dev.py collect
 python scripts/dev.py report
 python scripts/dev.py test
@@ -144,6 +150,7 @@ uv run cpa-monitor --config config.yaml run
 - `targets[].json_paths`: Required only by the `http_json` collector. It maps response JSON into total, available, error counts, and type details.
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
 - `notifications.console`: Console notification settings. Enabled by default for local debugging and non-bot deployments.
+- `notifications.onebot`: NapCatQQ/OneBot notification settings. It supports group messages, private messages, login checks, and group-list checks. Report images are sent as local `file://` paths first and automatically fall back to `base64://` when the gateway cannot read the local path.
 - `notifications.qqbot`: Official QQ Bot notification settings. The first version sends text-only private messages to one OpenID, with AppID, AppSecret, and OpenID read from `.env`.
 
 ## Open Source Data Boundary
@@ -207,4 +214,4 @@ python scripts/dev.py onebot-login
 python scripts/dev.py onebot-groups
 ```
 
-Text and images use OneBot array message segments. Images are sent as local `file://` paths. If your OneBot gateway runs in Docker, make sure it can read the generated report path, or extend the notifier to send HTTP-accessible image URLs. For additional NapCat/OneBot actions, add a small wrapper on top of `OneBotClient.call()`.
+Text and images use OneBot array message segments. Report images are sent as local `file://` paths first. If the OneBot gateway runs outside the container or on another machine and cannot read that path, the notifier automatically retries with a `base64://` image. For additional NapCat/OneBot actions, add a small wrapper on top of `OneBotClient.call()`.

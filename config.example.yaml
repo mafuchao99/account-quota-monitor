@@ -39,7 +39,8 @@ notifications:
     # OneBot 访问令牌；没有配置鉴权时保持空字符串。
     access_token: ""
     retry_count: 2
-    # 当前适配器使用 OneBot Array 消息段格式；报表图片会以 file:// 本地路径交给 NapCat 读取。
+    # 当前适配器使用 OneBot Array 消息段格式；报表图片优先以 file:// 本地路径交给 NapCat 读取。
+    # 如果 NapCat 读不到该路径，会自动改用 base64:// 图片兜底，适合 Docker/跨机器部署。
     # 群号列表。enabled 为 true 且列表非空时发送群消息。
     group_ids: []
     # 私聊 QQ 号列表。enabled 为 true 且列表非空时发送私聊。
