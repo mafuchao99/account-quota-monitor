@@ -62,18 +62,18 @@ targets:
     collector: cli_proxy_codex
     # CLIProxyAPI 地址，从 .env 的 CPA_ENDPOINT 读取。可以填裸域名或带 /v0/management 的管理端地址。
     base_url: ${CPA_ENDPOINT}
-    # 固定 Cron 采集频率。启用 dynamic_schedule 后，采集使用动态 interval，这里作为兼容配置保留。
-    cron: "0 */30 * * * *"
+    # 固定 Cron 采集频率。默认每小时第 50 分钟采集一次，给整点小时报留出采集窗口。
+    cron: "0 50 * * * *"
     # 全量采集时按凭证顺序一个个查询，两个凭证之间随机等待，避免并发触发风控。
     # quota-one 单凭证查询不受这个等待影响。
     delay_min_seconds: 1
     delay_max_seconds: 3
     dynamic_schedule:
       # 开启后按 normal/urgent 两种间隔动态调度，而不是按 cron 固定调度。
-      enabled: true
-      # 正常情况下每 30 分钟采集一次。
+      enabled: false
+      # 动态调度开启后，正常情况下每 30 分钟采集一次。
       normal_interval_minutes: 30
-      # 当剩余额度低于 urgent_remaining_percent 时，缩短为每 10 分钟采集一次。
+      # 动态调度开启后，当剩余额度低于 urgent_remaining_percent 时，缩短为每 10 分钟采集一次。
       urgent_interval_minutes: 10
       # 不配置时默认沿用 thresholds.remaining_percent。
       urgent_remaining_percent: 20

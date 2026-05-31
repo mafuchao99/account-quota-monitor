@@ -87,7 +87,7 @@ def render_report_html(
 
     if detail_mode == "latest":
         title = "Codex 小时报表"
-        report_body = _hourly_report_block(snapshots)
+        report_body = _hourly_report_block(snapshots, history_snapshots or snapshots)
         subtitle = f"时间：{generated_at:%Y-%m-%d %H:%M}"
     else:
         title = "Codex 额度汇总"
@@ -152,7 +152,7 @@ def render_report_html(
 </html>"""
 
 
-def _hourly_report_block(snapshots: list[MetricSnapshot]) -> str:
+def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: list[MetricSnapshot]) -> str:
     latest = snapshots[-1]
     quota_metrics = quota_pool_metrics(latest.type_metrics)
     status_items = [
@@ -174,7 +174,7 @@ def _hourly_report_block(snapshots: list[MetricSnapshot]) -> str:
     available = _available_account_block(latest)
     upcoming = _upcoming_recovery_block(upcoming_recoveries)
     exhausted = _exhausted_account_block(latest, {item.metric.type_name for item in upcoming_recoveries})
-    errors = _error_account_block(latest)
+    errors = _error_account_block(latest, history_snapshots)
 
     sections = [
         _hourly_section("当前状态", "<div class='hourly-line'>" + "".join(f"<span>{html.escape(item)}</span>" for item in status_items) + "</div>"),
@@ -241,11 +241,12 @@ def _exhausted_account_block(snapshot: MetricSnapshot, recovery_names: set[str])
     return _list_section("额度耗尽", items)
 
 
-def _error_account_block(snapshot: MetricSnapshot) -> str:
+def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[MetricSnapshot]) -> str:
     items = []
     for metric in snapshot.type_metrics:
         if metric.unauthorized > 0:
-            items.append(f"{mask_display_name(metric.type_name)}：401 未授权")
+            usage = _last_success_usage_text(metric.type_name, snapshot.captured_at, history_snapshots)
+            items.append(f"{mask_display_name(metric.type_name)}：401 未授权，{usage}")
         if metric.other_errors > 0:
             items.append(f"{mask_display_name(metric.type_name)}：其他错误 {metric.other_errors}")
     return _list_section("异常账号", items)
@@ -533,6 +534,24 @@ def _used_percent(remaining_percent: float | None) -> float | None:
 
 def _used_percent_text(value: float | None) -> str:
     return "-" if value is None else f"{value:.2f}%"
+
+
+def _last_success_usage_text(type_name: str, unauthorized_at: datetime, history_snapshots: list[MetricSnapshot]) -> str:
+    successful_history = [
+        (snapshot.captured_at, metric)
+        for snapshot in history_snapshots
+        for metric in snapshot.type_metrics
+        if metric.type_name == type_name
+        and snapshot.captured_at < unauthorized_at
+        and metric.unauthorized == 0
+        and metric.other_errors == 0
+        and (metric.remaining_5h_percent is not None or metric.remaining_7d_percent is not None)
+    ]
+    if not successful_history:
+        return "历史额度不足"
+    successful_history.sort(key=lambda item: item[0])
+    last_metric = successful_history[-1][1]
+    return f"5h 已用 {_used_percent_text(_used_percent(last_metric.remaining_5h_percent))}，7d 已用 {_used_percent_text(_used_percent(last_metric.remaining_7d_percent))}"
 
 
 def _time_text(value: datetime | None) -> str:

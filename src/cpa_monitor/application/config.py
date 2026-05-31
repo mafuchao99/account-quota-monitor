@@ -43,7 +43,7 @@ class TargetConfig:
     collector: str = "http_json"
     base_url: str = ""
     method: str = "GET"
-    cron: str = "0 */30 * * * *"
+    cron: str = "0 50 * * * *"
     delay_min_seconds: float = 1
     delay_max_seconds: float = 3
     headers: dict[str, str] = field(default_factory=dict)
@@ -236,7 +236,7 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
         collector=str(data.get("collector", "http_json")),
         base_url=str(data.get("base_url", "")),
         method=str(data.get("method", "GET")).upper(),
-        cron=str(data.get("cron", "0 */30 * * * *")),
+        cron=str(data.get("cron", "0 50 * * * *")),
         delay_min_seconds=float(data.get("delay_min_seconds", 1)),
         delay_max_seconds=float(data.get("delay_max_seconds", 3)),
         headers={str(k): str(v) for k, v in data.get("headers", {}).items()},

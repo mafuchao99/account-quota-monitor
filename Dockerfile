@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.60.0-jammy
 COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /bin/
 
 WORKDIR /app

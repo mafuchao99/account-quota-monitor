@@ -95,6 +95,24 @@ url = "https://example.test"
     assert config.app.full_report_enabled is False
 
 
+def test_target_collection_defaults_to_hourly_minute_50(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.targets[0].cron == "0 50 * * * *"
+    assert config.targets[0].dynamic_schedule.enabled is False
+
+
 def test_load_config_accepts_legacy_single_full_report_cron(tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(

@@ -218,6 +218,7 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
             TypeMetric(type_name="latest@example.com", available=1, total=1, remaining_5h_percent=90, remaining_7d_percent=90),
             TypeMetric(type_name="recover@example.com", available=0, total=1, remaining_5h_percent=30, remaining_7d_percent=80),
             TypeMetric(type_name="weekly-empty@example.com", available=0, total=1, remaining_5h_percent=99, remaining_7d_percent=0),
+            TypeMetric(type_name="bad@example.com", available=1, total=1, remaining_5h_percent=65, remaining_7d_percent=18),
         ),
     )
     latest = MetricSnapshot(
@@ -277,7 +278,7 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "【额度耗尽】" in html
     assert "we***ty@example.com：7d 已耗尽" in html
     assert "【异常账号】" in html
-    assert "ba***@example.com：401 未授权" in html
+    assert "ba***@example.com：401 未授权，5h 已用 35.00%，7d 已用 82.00%" in html
     assert "latest@example.com" not in html
 
 
@@ -297,7 +298,7 @@ def test_hourly_report_always_lists_current_401_account():
 
     assert "401 异常：1" in html
     assert "【异常账号】" in html
-    assert "ba***@example.com：401 未授权" in html
+    assert "ba***@example.com：401 未授权，历史额度不足" in html
     assert "bad@example.com" not in html
 
 

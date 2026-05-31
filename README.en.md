@@ -139,8 +139,8 @@ uv run cpa-monitor --config config.yaml run
 - `targets[].base_url`: CLIProxyAPI endpoint. The example reads it from `CPA_ENDPOINT`; put the real endpoint only in your local `.env` or runtime environment.
 - `targets[].headers.Authorization`: Authentication header in the `Bearer <Management Key>` format. The example reads it from `CPA_MANAGEMENT_KEY`; put the real key only in your local `.env` or runtime environment.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
-- `targets[].cron`: Polling Cron for each target.
-- `targets[].dynamic_schedule`: Optional dynamic polling interval. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
+- `targets[].cron`: Polling Cron for each target. The default collects at minute 50 every hour, leaving a collection window before the top-of-hour report.
+- `targets[].dynamic_schedule`: Optional dynamic polling interval. Disabled by default. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
 - `targets[].json_paths`: Required only by the `http_json` collector. It maps response JSON into total, available, error counts, and type details.
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
 - `notifications.console`: Console notification settings. Enabled by default for local debugging and non-bot deployments.
