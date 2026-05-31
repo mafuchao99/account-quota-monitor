@@ -44,6 +44,7 @@ class TargetConfig:
     base_url: str = ""
     method: str = "GET"
     cron: str = "0 50 * * * *"
+    crons: tuple[str, ...] = ()
     delay_min_seconds: float = 1
     delay_max_seconds: float = 3
     headers: dict[str, str] = field(default_factory=dict)
@@ -229,6 +230,7 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
     paths = JsonPaths(**data.get("json_paths", {}))
     thresholds = Thresholds(**data.get("thresholds", {}))
     dynamic_schedule = _parse_dynamic_schedule(data.get("dynamic_schedule", {}))
+    crons = _parse_target_crons(data)
     return TargetConfig(
         id=str(data["id"]),
         name=str(data["name"]),
@@ -236,7 +238,8 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
         collector=str(data.get("collector", "http_json")),
         base_url=str(data.get("base_url", "")),
         method=str(data.get("method", "GET")).upper(),
-        cron=str(data.get("cron", "0 50 * * * *")),
+        cron=crons[0],
+        crons=crons,
         delay_min_seconds=float(data.get("delay_min_seconds", 1)),
         delay_max_seconds=float(data.get("delay_max_seconds", 3)),
         headers={str(k): str(v) for k, v in data.get("headers", {}).items()},
@@ -245,6 +248,22 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
         thresholds=thresholds,
         dynamic_schedule=dynamic_schedule,
     )
+
+
+def _parse_target_crons(data: dict[str, Any]) -> tuple[str, ...]:
+    has_cron = "cron" in data
+    has_crons = "crons" in data
+    if has_cron and has_crons:
+        raise ValueError("Use either target cron or crons, not both.")
+    raw = data.get("crons") if has_crons else [data.get("cron", "0 50 * * * *")]
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ValueError("target crons must be a non-empty list.")
+    crons = tuple(str(item) for item in raw)
+    if any(not item.strip() for item in crons):
+        raise ValueError("target crons cannot contain empty values.")
+    return tuple(dict.fromkeys(crons))
 
 
 def _parse_dynamic_schedule(data: dict[str, Any]) -> DynamicSchedule:

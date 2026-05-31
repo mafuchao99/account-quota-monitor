@@ -37,9 +37,9 @@ def setup(_args: argparse.Namespace) -> None:
         print(f"Created {ENV_FILE.name} from {EXAMPLE_ENV_FILE.name}")
 
 
-def cpa_monitor(args: argparse.Namespace, command: str, extra: list[str] | None = None) -> None:
+def cpa_monitor(args: argparse.Namespace, command: str, extra: list[str] | None = None, *, check: bool = True) -> None:
     extra = extra or []
-    run(
+    result = run(
         [
             uv_command(),
             "run",
@@ -50,8 +50,11 @@ def cpa_monitor(args: argparse.Namespace, command: str, extra: list[str] | None 
             args.log_level,
             command,
             *extra,
-        ]
+        ],
+        check=check,
     )
+    if not check and result.returncode != 0:
+        raise SystemExit(result.returncode)
 
 
 def report_args(args: argparse.Namespace) -> list[str]:
@@ -104,6 +107,16 @@ def main() -> None:
     notify_parser.add_argument("--log-level", default="INFO")
     notify_parser.add_argument("--message", default="CPA Monitor 通知测试")
     notify_parser.set_defaults(func=lambda args: cpa_monitor(args, "notify-test", ["--message", args.message]))
+
+    onebot_login_parser = subparsers.add_parser("onebot-login", help="Call OneBot /get_login_info.")
+    onebot_login_parser.add_argument("--config", default="config.yaml")
+    onebot_login_parser.add_argument("--log-level", default="INFO")
+    onebot_login_parser.set_defaults(func=lambda args: cpa_monitor(args, "onebot-login-info", check=False))
+
+    onebot_groups_parser = subparsers.add_parser("onebot-groups", help="Call OneBot /get_group_list.")
+    onebot_groups_parser.add_argument("--config", default="config.yaml")
+    onebot_groups_parser.add_argument("--log-level", default="INFO")
+    onebot_groups_parser.set_defaults(func=lambda args: cpa_monitor(args, "onebot-group-list", check=False))
 
     report_parser = subparsers.add_parser("report", help="Generate and send a report.")
     report_parser.add_argument("--config", default="config.yaml")

@@ -38,8 +38,14 @@ def cron_kwargs(expression: str) -> dict[str, str]:
     raise ValueError(f"Cron expression must have 5 or 6 fields: {expression}")
 
 
-def collect_job_id(target: TargetConfig) -> str:
-    return f"collect:{target.id}"
+def collect_crons(target: TargetConfig) -> tuple[str, ...]:
+    return target.crons or (target.cron,)
+
+
+def collect_job_id(target: TargetConfig, index: int | None = None) -> str:
+    if index is None:
+        return f"collect:{target.id}"
+    return f"collect:{target.id}:{index}"
 
 
 def desired_collect_interval_minutes(target: TargetConfig, snapshot: MetricSnapshot) -> int | None:
@@ -107,21 +113,28 @@ class MonitorScheduler:
         self.scheduler.start()
 
     def _add_collect_job(self, target: TargetConfig) -> None:
-        trigger = self.cron_trigger_cls(**cron_kwargs(target.cron), timezone=self.timezone)
         if target.dynamic_schedule.enabled:
             minutes = target.dynamic_schedule.normal_interval_minutes
             self.collect_interval_minutes[target.id] = minutes
-            # Dynamic targets use interval scheduling; cron remains the fallback for fixed schedules.
-            trigger = self.interval_trigger_cls(minutes=minutes, timezone=self.timezone)
+            self.scheduler.add_job(
+                self._collect_and_reschedule,
+                self.interval_trigger_cls(minutes=minutes, timezone=self.timezone),
+                args=[target],
+                id=collect_job_id(target),
+                replace_existing=True,
+                max_instances=1,
+            )
+            return
 
-        self.scheduler.add_job(
-            self._collect_and_reschedule,
-            trigger,
-            args=[target],
-            id=collect_job_id(target),
-            replace_existing=True,
-            max_instances=1,
-        )
+        for index, cron in enumerate(collect_crons(target)):
+            self.scheduler.add_job(
+                self._collect_and_reschedule,
+                self.cron_trigger_cls(**cron_kwargs(cron), timezone=self.timezone),
+                args=[target],
+                id=collect_job_id(target, index),
+                replace_existing=True,
+                max_instances=1,
+            )
 
     async def _collect_and_reschedule(self, target: TargetConfig) -> None:
         snapshot = await self.collect_callback(target)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 
 from cpa_monitor.application.config import MonitorConfig, load_config
@@ -11,6 +12,7 @@ from cpa_monitor.infrastructure.http.cli_proxy_codex import (
     collect_one_codex_quota,
     fetch_codex_credentials,
 )
+from cpa_monitor.infrastructure.notify.onebot import OneBotClient
 
 from .bootstrap import build_service
 
@@ -29,6 +31,8 @@ def main() -> None:
     quota_one_group.add_argument("--match", help="Unique substring matched against name/account/auth_index.")
     notify_parser = subparsers.add_parser("notify-test", help="Send a test notification through configured channels.")
     notify_parser.add_argument("--message", default="CPA Monitor 通知测试", help="Test message content.")
+    subparsers.add_parser("onebot-login-info", help="Call OneBot /get_login_info.")
+    subparsers.add_parser("onebot-group-list", help="Call OneBot /get_group_list.")
     report_parser = subparsers.add_parser("report", help="Generate and send a report from recent snapshots.")
     report_parser.add_argument("--hours", type=int, help="How many recent hours to include.")
     report_parser.add_argument("--detail-mode", choices=("latest", "all", "none"), help="Detail section mode.")
@@ -36,8 +40,12 @@ def main() -> None:
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper()), format="%(asctime)s %(levelname)s %(message)s")
     config = load_config(args.config)
-    service = build_service(config)
+    if args.command == "onebot-login-info":
+        raise SystemExit(asyncio.run(print_onebot_login_info(config)))
+    if args.command == "onebot-group-list":
+        raise SystemExit(asyncio.run(print_onebot_group_list(config)))
 
+    service = build_service(config)
     if args.command == "run":
         asyncio.run(service.run())
     elif args.command == "collect-once":
@@ -50,6 +58,28 @@ def main() -> None:
         asyncio.run(service.notifier.send_text(args.message))
     elif args.command == "report":
         asyncio.run(service.send_report(hours=args.hours, detail_mode=args.detail_mode))
+
+
+async def print_onebot_login_info(config: MonitorConfig) -> int:
+    client = OneBotClient(config.onebot)
+    try:
+        payload = await client.get_login_info()
+    except Exception as exc:
+        print(f"OneBot /get_login_info failed: {type(exc).__name__}: {exc}")
+        return 1
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+async def print_onebot_group_list(config: MonitorConfig) -> int:
+    client = OneBotClient(config.onebot)
+    try:
+        payload = await client.get_group_list()
+    except Exception as exc:
+        print(f"OneBot /get_group_list failed: {type(exc).__name__}: {exc}")
+        return 1
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 async def print_credentials(config: MonitorConfig) -> int:

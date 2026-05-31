@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from cpa_monitor.application.config import DynamicSchedule, TargetConfig, load_config
-from cpa_monitor.application.schedule import cron_kwargs, desired_collect_interval_minutes
+from cpa_monitor.application.schedule import MonitorScheduler, collect_crons, cron_kwargs, desired_collect_interval_minutes
 from cpa_monitor.domain.models import MetricSnapshot
 
 
@@ -110,7 +110,75 @@ url = "https://example.test"
     config = load_config(config_path)
 
     assert config.targets[0].cron == "0 50 * * * *"
+    assert config.targets[0].crons == ("0 50 * * * *",)
     assert config.targets[0].dynamic_schedule.enabled is False
+
+
+def test_load_config_accepts_multiple_target_crons(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+crons = ["0 50 7-22 * * *", "0 50 23,1,3,5 * * *"]
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.targets[0].cron == "0 50 7-22 * * *"
+    assert config.targets[0].crons == ("0 50 7-22 * * *", "0 50 23,1,3,5 * * *")
+    assert collect_crons(config.targets[0]) == config.targets[0].crons
+
+
+def test_load_config_rejects_target_cron_and_crons_together(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[targets]]
+id = "codex"
+name = "Codex"
+url = "https://example.test"
+cron = "0 50 * * * *"
+crons = ["0 50 7-22 * * *"]
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cron or crons"):
+        load_config(config_path)
+
+
+def test_scheduler_registers_each_fixed_collect_cron():
+    async def collect_callback(target):
+        return MetricSnapshot(target.id, target.name, datetime(2026, 6, 1, tzinfo=ZoneInfo("Asia/Shanghai")), available=1, total=1)
+
+    async def report_callback():
+        return None
+
+    target = TargetConfig(
+        id="codex",
+        name="Codex",
+        url="https://example.test",
+        crons=("0 50 7-22 * * *", "0 50 23,1,3,5 * * *"),
+    )
+    scheduler = MonitorScheduler(
+        timezone=ZoneInfo("Asia/Shanghai"),
+        targets=(target,),
+        report_cron="0 0 * * * *",
+        full_report_enabled=False,
+        full_report_crons=(),
+        collect_callback=collect_callback,
+        report_callback=report_callback,
+        full_report_callback=report_callback,
+    )
+
+    job_ids = {job.id for job in scheduler.scheduler.get_jobs()}
+
+    assert {"collect:codex:0", "collect:codex:1", "report"} <= job_ids
 
 
 def test_load_config_accepts_legacy_single_full_report_cron(tmp_path):

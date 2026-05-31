@@ -33,15 +33,16 @@ notifications:
   onebot:
     enabled: false
     # NapCatQQ/OneBot HTTP 服务地址。
-    endpoint: http://127.0.0.1:3000
+    endpoint: http://127.0.0.1:3301
     # OneBot 访问令牌；没有配置鉴权时保持空字符串。
     access_token: ""
     retry_count: 2
+    # 当前适配器使用 OneBot Array 消息段格式；报表图片会以 file:// 本地路径交给 NapCat 读取。
     # 群号列表。enabled 为 true 且列表非空时发送群消息。
     group_ids: []
     # 私聊 QQ 号列表。enabled 为 true 且列表非空时发送私聊。
     private_user_ids: []
-  # QQ 官方 Bot 通知，可选。当前只支持给一个 OpenID 发送文本私聊。
+  # QQ 官方 Bot 通知，可选。当前只支持给一个 OpenID 发送文本私聊。(暂时不支持)
   qqbot:
     enabled: false
     # 以下三个值都从 .env 读取，真实值不要写入仓库。
@@ -62,12 +63,14 @@ targets:
     collector: cli_proxy_codex
     # CLIProxyAPI 地址，从 .env 的 CPA_ENDPOINT 读取。可以填裸域名或带 /v0/management 的管理端地址。
     base_url: ${CPA_ENDPOINT}
-    # 固定 Cron 采集频率。默认每小时第 50 分钟采集一次，给整点小时报留出采集窗口。
-    cron: "0 50 * * * *"
+    # 固定 Cron 采集频率。支持单个 cron，也支持 crons 列表；默认采集早于报告，给报表留出采集窗口。
+    crons:
+      - "0 50 7-23 * * *"
+      - "0 50 1,5 * * *"
     # 全量采集时按凭证顺序一个个查询，两个凭证之间随机等待，避免并发触发风控。
     # quota-one 单凭证查询不受这个等待影响。
-    delay_min_seconds: 1
-    delay_max_seconds: 3
+    delay_min_seconds: 5
+    delay_max_seconds: 10
     dynamic_schedule:
       # 开启后按 normal/urgent 两种间隔动态调度，而不是按 cron 固定调度。
       enabled: false

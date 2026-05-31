@@ -139,7 +139,7 @@ uv run cpa-monitor --config config.yaml run
 - `targets[].base_url`: CLIProxyAPI endpoint. The example reads it from `CPA_ENDPOINT`; put the real endpoint only in your local `.env` or runtime environment.
 - `targets[].headers.Authorization`: Authentication header in the `Bearer <Management Key>` format. The example reads it from `CPA_MANAGEMENT_KEY`; put the real key only in your local `.env` or runtime environment.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
-- `targets[].cron`: Polling Cron for each target. The default collects at minute 50 every hour, leaving a collection window before the top-of-hour report.
+- `targets[].cron` / `targets[].crons`: Polling Cron for each target. Use `cron` for a single schedule and `crons` for multiple custom windows. Collection should run before report schedules; the default example collects at minute 50 to leave a window before the top-of-hour report.
 - `targets[].dynamic_schedule`: Optional dynamic polling interval. Disabled by default. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
 - `targets[].json_paths`: Required only by the `http_json` collector. It maps response JSON into total, available, error counts, and type details.
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
@@ -194,7 +194,17 @@ python scripts/dev.py notify --message "CPA Monitor notification test"
 
 If you use a NapCatQQ/OneBot 11 gateway, CPA Monitor still supports OneBot HTTP APIs:
 
+- Connectivity check: `/get_login_info`
+- Group list: `/get_group_list`
 - Group messages: `/send_group_msg`
 - Private messages: `/send_private_msg`
+- Common sending: `/send_msg`
 
-Images are sent as local `file://` paths. If your OneBot gateway runs in Docker, make sure it can read the generated report path, or extend the notifier to send HTTP-accessible image URLs.
+You can test the configured endpoint/token first:
+
+```bash
+python scripts/dev.py onebot-login
+python scripts/dev.py onebot-groups
+```
+
+Text and images use OneBot array message segments. Images are sent as local `file://` paths. If your OneBot gateway runs in Docker, make sure it can read the generated report path, or extend the notifier to send HTTP-accessible image URLs. For additional NapCat/OneBot actions, add a small wrapper on top of `OneBotClient.call()`.
