@@ -9,6 +9,7 @@ dependencies = [
   "APScheduler>=3.10",
   "playwright>=1.44",
   "PyYAML>=6.0",
+  "tzdata>=2025.2",
 ]
 
 [project.optional-dependencies]
