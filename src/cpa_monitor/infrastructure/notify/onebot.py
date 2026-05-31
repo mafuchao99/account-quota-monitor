@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 from typing import Any
 
@@ -98,11 +99,17 @@ class OneBotNotifier:
         await self.send_text(text)
 
     async def send_report(self, image_path: Path, caption: str = "Codex 额度汇总") -> None:
+        image_path = image_path.resolve()
         message = [
             text_segment(caption + "\n"),
-            image_segment(image_path.resolve().as_uri()),
+            image_segment(image_path.as_uri()),
         ]
-        await self._broadcast(message)
+        try:
+            await self._broadcast(message)
+        except Exception as exc:
+            if not _should_retry_image_as_base64(exc):
+                raise
+            await self._broadcast([text_segment(caption + "\n"), image_segment(_base64_image_uri(image_path))])
 
     async def send_text(self, text: str) -> None:
         await self._broadcast([text_segment(text)])
@@ -123,3 +130,12 @@ def text_segment(text: str) -> MessageSegment:
 
 def image_segment(file_uri: str) -> MessageSegment:
     return {"type": "image", "data": {"file": file_uri}}
+
+
+def _should_retry_image_as_base64(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "enoent" in message or "no such file" in message
+
+
+def _base64_image_uri(image_path: Path) -> str:
+    return f"base64://{base64.b64encode(image_path.read_bytes()).decode('ascii')}"

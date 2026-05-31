@@ -40,11 +40,15 @@ class FakeHttpClient:
 
 
 class FakeOneBotClient:
-    def __init__(self):
+    def __init__(self, fail_first_group_message=False):
+        self.fail_first_group_message = fail_first_group_message
         self.group_messages = []
         self.private_messages = []
 
     async def send_group_msg(self, group_id, message):
+        if self.fail_first_group_message:
+            self.fail_first_group_message = False
+            raise RuntimeError("OneBot action failed: retcode=200, message=ENOENT: no such file or directory")
         self.group_messages.append((group_id, message))
         return {"message_id": 1}
 
@@ -122,3 +126,18 @@ async def test_onebot_report_uses_array_segments_with_local_image_uri(tmp_path):
     _, message = fake_client.group_messages[0]
     assert message[0] == {"type": "text", "data": {"text": "服务器报表\n"}}
     assert message[1] == {"type": "image", "data": {"file": Path(image_path).resolve().as_uri()}}
+
+
+@pytest.mark.asyncio
+async def test_onebot_report_retries_with_base64_when_local_image_path_is_unreadable(tmp_path):
+    image_path = tmp_path / "report.png"
+    image_path.write_bytes(b"png")
+    fake_client = FakeOneBotClient(fail_first_group_message=True)
+    notifier = OneBotNotifier(OneBotConfig(group_ids=("1080790263",)), client=fake_client)
+
+    await notifier.send_report(image_path, "服务器报表")
+
+    _, message = fake_client.group_messages[0]
+    assert message[0] == {"type": "text", "data": {"text": "服务器报表\n"}}
+    assert message[1]["type"] == "image"
+    assert message[1]["data"]["file"].startswith("base64://")
