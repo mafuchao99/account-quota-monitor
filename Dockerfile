@@ -10,7 +10,9 @@ ENV PYTHONUNBUFFERED=1 \
     CPA_MONITOR_CONFIG=/app/config/config.yaml
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md README.en.md ./
