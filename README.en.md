@@ -60,8 +60,8 @@ cp config.example.yaml config.yaml
 - `targets[].headers.Authorization`: The default template uses `Bearer ${CPA_MANAGEMENT_KEY}`. The app automatically loads a sibling `.env` file and also supports system environment variables. Never commit the real key.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Full collection queries credentials sequentially and waits a random delay between credentials. The default is 5 to 10 seconds to avoid concurrent quota checks.
 - `notifications.console.enabled`: Enabled by default. Alerts and report notices are printed to the console.
-- `notifications.qqbot.enabled`: Set it to `true` for official QQ Bot private notifications, then fill `QQBOT_APP_ID`, `QQBOT_APP_SECRET`, and `QQBOT_OPENID` in `.env`.
-- `notifications.onebot.enabled`: Set it to `true` only when using NapCatQQ/OneBot, then fill endpoint and recipients.
+- `notifications.onebot.enabled`: Set it to `true` when using NapCatQQ/OneBot, then fill endpoint and recipients. At the moment, only the OneBot/NapCatQQ channel can send QQ notifications.
+- `notifications.qqbot.enabled`: Reserved for the official QQ Bot channel. It is not adapted yet, so keep it `false`.
 
 3. Start the service:
 
@@ -151,7 +151,7 @@ uv run cpa-monitor --config config.yaml run
 - `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
 - `notifications.console`: Console notification settings. Enabled by default for local debugging and non-bot deployments.
 - `notifications.onebot`: NapCatQQ/OneBot notification settings. It supports group messages, private messages, login checks, and group-list checks. Report images are sent as local `file://` paths first and automatically fall back to `base64://` when the gateway cannot read the local path.
-- `notifications.qqbot`: Official QQ Bot notification settings. The first version sends text-only private messages to one OpenID, with AppID, AppSecret, and OpenID read from `.env`.
+- `notifications.qqbot`: Reserved official QQ Bot settings. Sending through the official QQ Bot channel is not adapted yet, so keep it disabled.
 
 ## Open Source Data Boundary
 
@@ -171,35 +171,31 @@ The database schema is created and migrated by the application at runtime, so th
 - `infrastructure/http`: calls target HTTP JSON APIs with `httpx`.
 - `infrastructure/storage`: stores snapshots and alert silence state in SQLite.
 - `infrastructure/reporting`: renders HTML reports, then uses Playwright/Chromium to capture PNG images.
-- `infrastructure/notify`: sends notifications through the official QQ Bot API or OneBot HTTP API.
+- `infrastructure/notify`: sends notifications through the OneBot HTTP API. The official QQ Bot channel is not adapted yet.
 
 ## QQ Notifications
 
-Console notification is enabled by default, so the monitor works without any bot configuration. To additionally use official QQ Bot private notification, put `AppID`, `AppSecret`, and your `OpenID` in local `.env`:
+Console notification is enabled by default, so the monitor works without any bot configuration. QQ delivery currently supports only a NapCatQQ/OneBot 11 gateway. The official QQ Bot channel is not adapted yet, so do not enable `notifications.qqbot.enabled`.
 
-```env
-QQBOT_APP_ID=your-qqbot-app-id
-QQBOT_APP_SECRET=your-qqbot-app-secret
-QQBOT_OPENID=your-qq-openid
-```
-
-Then enable it in `config.yaml`:
+If you use a NapCatQQ/OneBot 11 gateway, enable OneBot in `config.yaml` and fill the endpoint, token, and recipients:
 
 ```yaml
 notifications:
-  qqbot:
+  onebot:
     enabled: true
+    endpoint: http://127.0.0.1:3000
+    access_token: your-onebot-token
+    group_ids:
+      - 123456789
 ```
 
-The QQBot channel currently supports text alerts and report-ready notices. Image sending and group notifications can be added later.
-
-After configuration, send a test private message:
+After configuration, send a test notification:
 
 ```bash
 python scripts/dev.py notify --message "CPA Monitor notification test"
 ```
 
-If you use a NapCatQQ/OneBot 11 gateway, CPA Monitor still supports OneBot HTTP APIs:
+CPA Monitor uses these OneBot HTTP APIs:
 
 - Connectivity check: `/get_login_info`
 - Group list: `/get_group_list`
