@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
@@ -155,22 +155,20 @@ def render_report_html(
 def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: list[MetricSnapshot]) -> str:
     latest = snapshots[-1]
     quota_metrics = quota_pool_metrics(latest.type_metrics)
+    unauthorized = _snapshot_unauthorized(latest)
+    other_errors = _snapshot_other_errors(latest)
     status_items = [
         f"可用账号：{latest.available}/{latest.total}",
         f"5h 总额度：{average_percent(metric.remaining_5h_percent for metric in quota_metrics)}",
         f"7d 总额度：{average_percent(metric.remaining_7d_percent for metric in quota_metrics)}",
+        f"禁用：{latest.disabled}",
+        f"401 异常：{unauthorized}",
+        f"其他错误：{other_errors}",
     ]
-    if latest.disabled:
-        status_items.append(f"禁用：{latest.disabled}")
-    if latest.unauthorized:
-        status_items.append(f"401 异常：{latest.unauthorized}")
-    if latest.other_errors:
-        status_items.append(f"其他错误：{latest.other_errors}")
 
     recovery_items = _recovery_items(latest)
     upcoming_recoveries = [item for item in recovery_items if item.metric.available <= 0][:3]
-    nearest_recovery = _nearest_recovery_text(upcoming_recoveries or recovery_items[:3])
-    recovery_gain = _recovery_gain_text(upcoming_recoveries or recovery_items[:3])
+    recovery_windows = _recovery_window_items(latest, recovery_items)
     available = _available_account_block(latest)
     upcoming = _upcoming_recovery_block(upcoming_recoveries)
     exhausted = _exhausted_account_block(latest, {item.metric.type_name for item in upcoming_recoveries})
@@ -181,9 +179,8 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
         _hourly_section(
             "恢复情况",
             "<div class='hourly-line'>"
-            f"<span>最近恢复：{html.escape(nearest_recovery)}</span>"
-            f"<span>预计恢复增量：{html.escape(recovery_gain)}</span>"
-            "</div>",
+            + "".join(f"<span>{html.escape(item)}</span>" for item in recovery_windows)
+            + "</div>",
         ),
         available,
         upcoming,
@@ -276,20 +273,23 @@ def _recovery_items(snapshot: MetricSnapshot) -> list[RecoveryItem]:
     return sorted(items, key=lambda item: item.reset_at)
 
 
-def _nearest_recovery_text(recovery_items: list[RecoveryItem]) -> str:
-    if not recovery_items:
-        return "暂无明确恢复时间"
-    first = recovery_items[0].reset_at
-    last = recovery_items[-1].reset_at
-    if first == last:
-        return f"{first:%H:%M}"
-    return f"{first:%H:%M} ~ {last:%H:%M}"
+def _recovery_window_items(snapshot: MetricSnapshot, recovery_items: list[RecoveryItem]) -> list[str]:
+    now = snapshot.captured_at
+    windows = ((30, "30分钟内可恢复"), (60, "1小时内可恢复"))
+    result = []
+    for minutes, label in windows:
+        end_at = now + timedelta(minutes=minutes)
+        gain = sum(item.gain_percent for item in recovery_items if now <= item.reset_at <= end_at)
+        result.append(f"{label}：+{_compact_percent(gain)}" if gain > 0 else f"{label}：-")
+    return result
 
 
-def _recovery_gain_text(recovery_items: list[RecoveryItem]) -> str:
-    if not recovery_items:
-        return "-"
-    return f"+{_compact_percent(sum(item.gain_percent for item in recovery_items))}"
+def _snapshot_unauthorized(snapshot: MetricSnapshot) -> int:
+    return snapshot.unauthorized or sum(metric.unauthorized for metric in snapshot.type_metrics)
+
+
+def _snapshot_other_errors(snapshot: MetricSnapshot) -> int:
+    return snapshot.other_errors or sum(metric.other_errors for metric in snapshot.type_metrics)
 
 
 def _exhausted_reason(metric: TypeMetric) -> str:
@@ -504,6 +504,8 @@ def _html_total_quota(snapshot: MetricSnapshot) -> str:
     metrics = quota_pool_metrics(snapshot.type_metrics)
     five = average_percent(item.remaining_5h_percent for item in metrics)
     seven = average_percent(item.remaining_7d_percent for item in metrics)
+    unauthorized = _snapshot_unauthorized(snapshot)
+    other_errors = _snapshot_other_errors(snapshot)
     recoveries = recovery_events(snapshot.type_metrics, snapshot.captured_at)[:3]
     if recoveries:
         recovery_html = "\n".join(f"<li>{html.escape(item)}</li>" for item in recoveries)
@@ -515,8 +517,8 @@ def _html_total_quota(snapshot: MetricSnapshot) -> str:
           <span>总计</span>
           <span>可用 {snapshot.available}/{snapshot.total}</span>
           <span>禁用 {snapshot.disabled}</span>
-          <span>401 {snapshot.unauthorized}</span>
-          <span>其他错误 {snapshot.other_errors}</span>
+          <span>401 {unauthorized}</span>
+          <span>其他错误 {other_errors}</span>
         </div>
         <div class="quota-line">
           <span>总 5h {five}</span>

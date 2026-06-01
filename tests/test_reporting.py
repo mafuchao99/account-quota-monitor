@@ -267,7 +267,12 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "可用账号：2/5" in html
     assert "5h 总额度：48.50%" in html
     assert "7d 总额度：65.75%" in html
+    assert "禁用：0" in html
     assert "401 异常：1" in html
+    assert "其他错误：0" in html
+    assert "30分钟内可恢复：+25%" in html
+    assert "1小时内可恢复：+37.50%" in html
+    assert "最近恢复：" not in html
     assert "预计耗尽" not in html
     assert "【当前可用账号】" in html
     assert "la***st@example.com" in html
@@ -280,6 +285,30 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "【异常账号】" in html
     assert "ba***@example.com：401 未授权，5h 已用 35.00%，7d 已用 82.00%" in html
     assert "latest@example.com" not in html
+
+
+def test_hourly_report_shows_zero_error_counts_and_type_metric_401_fallback():
+    tz = ZoneInfo("Asia/Shanghai")
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="Codex",
+        captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
+        available=13,
+        total=13,
+        disabled=1,
+        unauthorized=0,
+        other_errors=0,
+        type_metrics=(
+            TypeMetric(type_name="ok@example.com", available=1, total=1, remaining_5h_percent=80, remaining_7d_percent=90),
+            TypeMetric(type_name="bad@example.com", available=0, total=1, unauthorized=1),
+        ),
+    )
+
+    html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
+
+    assert "禁用：1" in html
+    assert "401 异常：1" in html
+    assert "其他错误：0" in html
 
 
 def test_hourly_report_always_lists_current_401_account():
