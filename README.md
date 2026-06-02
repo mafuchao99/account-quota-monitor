@@ -9,6 +9,16 @@ English documentation: [README.en.md](README.en.md)
 - [项目速览](docs/project-overview_CN.md)
 - [CLIProxyAPI Codex 额度采集器开发说明](docs/cli-proxy-codex-collector_CN.md)
 
+## 效果展示
+
+小时报会渲染为本地图片，方便直接查看当前账号池状态、恢复情况和可用账号明细。
+
+![Codex 小时报成品展示](docs/assets/hourly-report-showcase.png)
+
+配置 OneBot/NapCatQQ 后，监控汇总会自动发送到 QQ 群或私聊。
+
+![Codex 额度汇总发送到 QQ 展示](docs/assets/qq-message-showcase.png)
+
 ## 项目结构
 
 ```text

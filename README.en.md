@@ -8,6 +8,16 @@ Maintainer notes:
 
 - [Project overview (Chinese)](docs/project-overview_CN.md)
 
+## Showcase
+
+Hourly reports are rendered as local images, making it easy to review the current account pool, recovery estimates, and available-account details.
+
+![Codex hourly report showcase](docs/assets/hourly-report-showcase.png)
+
+After OneBot/NapCatQQ is configured, quota summaries can be sent automatically to QQ groups or private chats.
+
+![Codex quota summary sent to QQ](docs/assets/qq-message-showcase.png)
+
 ## Architecture
 
 ```text
