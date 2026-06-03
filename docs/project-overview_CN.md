@@ -150,6 +150,14 @@ uv run cpa-monitor --config config.yaml report --hours 3
 uv run cpa-monitor --config config.yaml run
 ```
 
+## 日常排查优先级
+
+为了避免不必要地请求 CPA，排查问题时优先从本地只读动作开始：
+
+- 先看最近日志、配置占位值和 `.env` 是否存在。
+- 再运行 `python scripts/dev.py report` 或 `python scripts/dev.py test` 验证本地存储、报表和测试。
+- 只有确认需要访问远端时，再使用 `quota-one` 单账号查询；全量采集留到最后，并保持顺序与随机等待。
+
 ## 测试覆盖现状
 
 测试位于 `tests/`：
