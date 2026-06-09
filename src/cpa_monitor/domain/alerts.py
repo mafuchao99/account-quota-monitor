@@ -6,6 +6,7 @@ from typing import Protocol
 from cpa_monitor.application.config import TargetConfig
 
 from .models import Alert, MetricSnapshot
+from .summary import mask_display_name
 
 
 class AlertState(Protocol):
@@ -42,7 +43,7 @@ def evaluate_alerts(
                 target.id,
                 "unauthorized",
                 f"{target.name} 出现 401",
-                f"当前 401 数量为 {current.unauthorized}，阈值为 {thresholds.unauthorized}。",
+                f"当前 401 数量为 {current.unauthorized}，阈值为 {thresholds.unauthorized}。{_unauthorized_detail(current)}",
             )
         )
 
@@ -73,3 +74,12 @@ def evaluate_alerts(
             alerts.append(alert)
             state.mark_alert_sent(target.id, alert.rule_key, now)
     return alerts
+
+
+def _unauthorized_detail(snapshot: MetricSnapshot) -> str:
+    names = [mask_display_name(metric.type_name) for metric in snapshot.type_metrics if metric.unauthorized > 0]
+    if not names:
+        return ""
+    shown = names[:10]
+    suffix = "" if len(names) <= len(shown) else f"，等 {len(names)} 个账号"
+    return f"账号：{'、'.join(shown)}{suffix}。"
