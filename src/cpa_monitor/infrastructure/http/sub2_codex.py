@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import random
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -42,7 +44,12 @@ class Sub2CodexCollector:
         )
 
 
-async def fetch_accounts(client: Any, base_url: str, headers: dict[str, str], page_size: int = 100) -> list[dict[str, Any]]:
+async def fetch_accounts(
+    client: Any,
+    base_url: str,
+    headers: dict[str, str],
+    page_size: int = 100,
+) -> list[dict[str, Any]]:
     accounts: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -51,6 +58,7 @@ async def fetch_accounts(client: Any, base_url: str, headers: dict[str, str], pa
         accounts.extend(items)
         if not items or (total is not None and len(accounts) >= total) or len(items) < page_size:
             return accounts
+        await asyncio.sleep(random.uniform(0, 2))
         page += 1
 
 

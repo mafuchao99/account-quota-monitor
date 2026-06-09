@@ -136,12 +136,44 @@ async def test_fetch_accounts_paginates_until_total_reached():
         ]
     )
 
-    accounts = await fetch_accounts(client, "https://example.test/api/v1/admin", {"x-api-key": "key"}, page_size=2)
+    accounts = await fetch_accounts(
+        client,
+        "https://example.test/api/v1/admin",
+        {"x-api-key": "key"},
+        page_size=2,
+    )
 
     assert [item["id"] for item in accounts] == ["1", "2", "3"]
     assert "page=1" in client.urls[0]
     assert "page=2" in client.urls[1]
     assert "platform=openai" in client.urls[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_accounts_waits_between_pages(monkeypatch):
+    client = FakeAccountsClient(
+        [
+            {"data": {"items": [{"id": "1"}], "total": 2}},
+            {"data": {"items": [{"id": "2"}], "total": 2}},
+        ]
+    )
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("cpa_monitor.infrastructure.http.sub2_codex.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("cpa_monitor.infrastructure.http.sub2_codex.random.uniform", lambda start, end: 1.25)
+
+    accounts = await fetch_accounts(
+        client,
+        "https://example.test/api/v1/admin",
+        {"x-api-key": "key"},
+        page_size=1,
+    )
+
+    assert [item["id"] for item in accounts] == ["1", "2"]
+    assert sleeps == [1.25]
 
 
 @pytest.mark.asyncio
