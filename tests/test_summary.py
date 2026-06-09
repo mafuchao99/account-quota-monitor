@@ -41,7 +41,7 @@ def test_format_snapshot_summary_lists_available_quota_and_recovery_time():
     assert "总 7d 额度：13.00%" in summary
     assert "最近三次 5h 恢复" in summary
     assert "12:30，约 30 分钟后，plus 可使总 5h 额度 +8.50%" in summary
-    assert "gmail: 5h 63.00%，7d 6.00%" in summary
+    assert "gm***: 5h 63.00%，7d 6.00%" in summary
     assert "约 45 分钟后" in summary
 
 
@@ -49,6 +49,8 @@ def test_mask_display_name_keeps_email_identifiable_without_full_address():
     assert mask_display_name("84106712349@qq.com") == "84***49@qq.com"
     assert mask_display_name("a@example.com") == "a***@example.com"
     assert mask_display_name("plus") == "plus"
+    assert mask_display_name("mafuhcao") == "ma***"
+    assert mask_display_name("Sana Leng Arti+oeewybc") == "Sa***bc"
 
 
 def test_format_snapshot_summary_lists_exhausted_5h_account_when_weekly_quota_remains():

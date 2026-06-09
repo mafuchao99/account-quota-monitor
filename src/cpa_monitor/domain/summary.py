@@ -86,7 +86,11 @@ def average_percent(values: Iterable[float | None]) -> str:
 
 def mask_display_name(value: str) -> str:
     if "@" not in value:
-        return value
+        if len(value) <= 4:
+            return value
+        if len(value) <= 8:
+            return f"{value[:2]}***"
+        return f"{value[:2]}***{value[-2:]}"
     name, domain = value.split("@", 1)
     if not name:
         return f"***@{domain}"

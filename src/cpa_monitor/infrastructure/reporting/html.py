@@ -163,7 +163,8 @@ def render_report_html(
 def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: list[MetricSnapshot]) -> str:
     latest = snapshots[-1]
     quota_metrics = effective_metrics(latest.type_metrics)
-    rate_limited = _snapshot_rate_limited(latest)
+    five_hour_exhausted = _snapshot_five_hour_exhausted(latest)
+    rate_limited = _snapshot_display_rate_limited(latest)
     unauthorized = _snapshot_unauthorized(latest)
     other_errors = _snapshot_other_errors(latest)
     status_items = [
@@ -171,6 +172,7 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
         f"5h 总额度：{average_percent(metric.remaining_5h_percent for metric in quota_metrics)}",
         f"7d 总额度：{average_percent(metric.remaining_7d_percent for metric in quota_metrics)}",
         f"禁用：{latest.disabled}",
+        f"5小时限额：{five_hour_exhausted}",
         f"429 限流：{rate_limited}",
         f"401 异常：{unauthorized}",
         f"其他错误：{other_errors}",
@@ -211,7 +213,7 @@ def _available_account_block(snapshot: MetricSnapshot) -> str:
         key=lambda metric: _sort_percent_key(metric.remaining_5h_percent),
     )
     if not metrics:
-        return _hourly_section("当前可用账号", "<div class='muted'>当前没有可用账号。</div>")
+        return _hourly_section(_count_title("当前可用账号", 0), "<div class='muted'>当前没有可用账号。</div>")
     rows = [_account_quota_cells(metric, snapshot.captured_at) for metric in metrics]
     return _grid_section("当前可用账号", "quota-account-grid", rows)
 
@@ -223,7 +225,6 @@ def _exhausted_account_block(snapshot: MetricSnapshot) -> str:
             for metric in snapshot.type_metrics
             if _is_five_hour_exhausted(metric)
             and not _is_weekly_exhausted(metric)
-            and metric.rate_limited == 0
             and metric.unauthorized == 0
             and metric.other_errors == 0
         ),
@@ -267,7 +268,11 @@ def _grid_section(title: str, grid_class: str, rows: list[list[str]]) -> str:
     if not rows:
         return ""
     body = f"<div class='account-grid {grid_class}'>" + "".join(_account_grid_row(row, grid_class) for row in rows) + "</div>"
-    return _hourly_section(title, body)
+    return _hourly_section(_count_title(title, len(rows)), body)
+
+
+def _count_title(title: str, count: int) -> str:
+    return f"{title}（{count}）"
 
 
 def _account_grid_row(cells: list[str], grid_class: str) -> str:
@@ -315,8 +320,19 @@ def _snapshot_unauthorized(snapshot: MetricSnapshot) -> int:
     return snapshot.unauthorized or sum(metric.unauthorized for metric in snapshot.type_metrics)
 
 
-def _snapshot_rate_limited(snapshot: MetricSnapshot) -> int:
-    return snapshot.rate_limited or sum(metric.rate_limited for metric in snapshot.type_metrics)
+def _snapshot_five_hour_exhausted(snapshot: MetricSnapshot) -> int:
+    return sum(
+        1
+        for metric in snapshot.type_metrics
+        if _is_five_hour_exhausted(metric)
+        and not _is_weekly_exhausted(metric)
+        and metric.unauthorized == 0
+        and metric.other_errors == 0
+    )
+
+
+def _snapshot_display_rate_limited(snapshot: MetricSnapshot) -> int:
+    return sum(1 for metric in snapshot.type_metrics if metric.rate_limited > 0 and _is_weekly_exhausted(metric))
 
 
 def _snapshot_other_errors(snapshot: MetricSnapshot) -> int:

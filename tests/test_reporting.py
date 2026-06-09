@@ -269,13 +269,15 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "5h 总额度：47.50%" in html
     assert "7d 总额度：91.50%" in html
     assert "禁用：0" in html
+    assert "5小时限额：1" in html
+    assert "429 限流：0" in html
     assert "401 异常：1" in html
     assert "其他错误：0" in html
     assert "30分钟内可恢复：+25%" in html
     assert "1小时内可恢复：+37.50%" in html
     assert "最近恢复：" not in html
     assert "预计耗尽" not in html
-    assert "【当前可用账号】" in html
+    assert "【当前可用账号（2）】" in html
     assert "la***st@example.com" in html
     assert "5h 45%" in html
     assert "预计 17:00 恢复" in html
@@ -284,10 +286,10 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "account-grid quota-account-grid" in html
     assert "【即将恢复】" not in html
     assert "【额度耗尽】" not in html
-    assert "【五小时额度耗尽】" in html
+    assert "【五小时额度耗尽（1）】" in html
     assert "re***er@example.com" in html
     assert "5h 0%" in html
-    assert "【异常账号】" in html
+    assert "【异常账号（2）】" in html
     assert "account-grid error-account-grid" in html
     assert "we***ty@example.com" in html
     assert "周额度耗尽" in html
@@ -333,6 +335,16 @@ def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
                 rate_limited_until=datetime(2026, 5, 29, 16, 0, tzinfo=tz),
             ),
             TypeMetric(
+                type_name="limited-5h@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=50,
+                reset_5h_at=datetime(2026, 5, 29, 14, 30, tzinfo=tz),
+                rate_limited=1,
+                rate_limited_until=datetime(2026, 5, 29, 14, 30, tzinfo=tz),
+            ),
+            TypeMetric(
                 type_name="only-429@example.com",
                 available=0,
                 total=1,
@@ -346,8 +358,14 @@ def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
 
     html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
 
+    assert "5小时限额：3" in html
+    assert "429 限流：1" in html
+    assert "【五小时额度耗尽（3）】" in html
+    assert "【异常账号（1）】" in html
     assert html.index("ea***ly@example.com") < html.index("la***er@example.com")
+    assert "li***5h@example.com" in html
     assert "预计 14:00 恢复" in html
+    assert "预计 14:30 恢复" in html
     assert "预计 15:00 恢复" in html
     assert "we***29@example.com" in html
     assert "429 限流" in html
@@ -394,7 +412,8 @@ def test_hourly_report_always_lists_current_401_account():
     html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest", unauthorized_names=set())
 
     assert "401 异常：1" in html
-    assert "【异常账号】" in html
+    assert "【当前可用账号（0）】" in html
+    assert "【异常账号（1）】" in html
     assert "ba***@example.com" in html
     assert "401 未授权" in html
     assert "历史额度不足" in html
