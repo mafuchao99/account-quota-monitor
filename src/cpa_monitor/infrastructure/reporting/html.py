@@ -140,13 +140,14 @@ def render_report_html(
     .hourly-title {{ margin-bottom: 10px; font-weight: 700; }}
     .hourly-line {{ display: flex; flex-wrap: wrap; gap: 8px 22px; line-height: 1.6; }}
     .hourly-list {{ margin: 0; padding-left: 20px; line-height: 1.65; }}
-    .account-grid {{ display: grid; column-gap: 10px; row-gap: 4px; align-items: baseline; font-size: 17px; line-height: 1.5; }}
-    .quota-account-grid {{ grid-template-columns: minmax(220px, 280px) 58px 58px 124px 210px; }}
+    .account-grid {{ display: grid; column-gap: 8px; row-gap: 4px; align-items: baseline; font-size: 16px; line-height: 1.5; }}
+    .quota-account-grid {{ grid-template-columns: minmax(200px, 260px) 56px 56px minmax(420px, 1fr); }}
     .error-account-grid {{ grid-template-columns: minmax(220px, 280px) 94px minmax(420px, 1fr); }}
     .account-row {{ display: contents; }}
     .account-cell {{ min-width: 0; padding: 2px 0; }}
     .account-name {{ overflow-wrap: anywhere; }}
-    .account-quota, .account-time, .account-status {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
+    .account-quota, .account-status {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
+    .account-time {{ font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
     .account-detail {{ overflow-wrap: anywhere; }}
     .footer {{ margin-top: 20px; font-size: 14px; }}
   </style>
@@ -277,7 +278,7 @@ def _count_title(title: str, count: int) -> str:
 
 def _account_grid_row(cells: list[str], grid_class: str) -> str:
     classes = (
-        ["account-name", "account-quota", "account-quota", "account-time", "account-time"]
+        ["account-name", "account-quota", "account-quota", "account-time"]
         if grid_class == "quota-account-grid"
         else ["account-name", "account-status", "account-detail"]
     )
@@ -344,8 +345,7 @@ def _account_quota_cells(metric: TypeMetric, reference: datetime) -> list[str]:
         mask_display_name(metric.type_name),
         f"5h {_compact_percent(metric.remaining_5h_percent)}",
         f"7d {_compact_percent(metric.remaining_7d_percent)}",
-        _recovery_time_text(metric, reference),
-        _usage_snapshot_text(metric, reference),
+        f"{_recovery_time_text(metric, reference)} · {_weekly_reset_text(metric, reference)} · {_usage_snapshot_text(metric, reference)}",
     ]
 
 
@@ -353,13 +353,18 @@ def _account_quota_detail(metric: TypeMetric, reference: datetime) -> str:
     return (
         f"5h {_compact_percent(metric.remaining_5h_percent)}，"
         f"7d {_compact_percent(metric.remaining_7d_percent)}，"
-        f"{_recovery_time_text(metric, reference)}，{_usage_snapshot_text(metric, reference)}"
+        f"{_recovery_time_text(metric, reference)}，{_weekly_reset_text(metric, reference)}，{_usage_snapshot_text(metric, reference)}"
     )
 
 
 def _recovery_time_text(metric: TypeMetric, reference: datetime) -> str:
     reset_5h_at = _local_time(metric.reset_5h_at, reference)
     return "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
+
+
+def _weekly_reset_text(metric: TypeMetric, reference: datetime) -> str:
+    reset_7d_at = _local_time(metric.reset_7d_at, reference)
+    return "7d 刷新未知" if reset_7d_at is None else f"7d 预计 {reset_7d_at:%m-%d %H:%M} 刷新"
 
 
 def _is_five_hour_exhausted(metric: TypeMetric) -> bool:

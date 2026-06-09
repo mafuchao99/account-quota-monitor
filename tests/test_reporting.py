@@ -236,6 +236,7 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
                 remaining_5h_percent=45,
                 remaining_7d_percent=91,
                 reset_5h_at=datetime(2026, 5, 29, 17, 0, tzinfo=tz),
+                reset_7d_at=datetime(2026, 6, 1, 17, 0, tzinfo=tz),
                 usage_updated_at=datetime(2026, 5, 29, 12, 45, tzinfo=tz),
             ),
             TypeMetric(
@@ -281,6 +282,7 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "la***st@example.com" in html
     assert "5h 45%" in html
     assert "预计 17:00 恢复" in html
+    assert "7d 预计 06-01 17:00 刷新" in html
     assert "快照 12:45，约 15 分钟前" in html
     assert html.index("la***st@example.com") < html.index("so***@example.com")
     assert "account-grid quota-account-grid" in html
