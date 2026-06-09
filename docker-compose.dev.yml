@@ -10,6 +10,9 @@ services:
       CPA_MONITOR_CONFIG: /app/config.yaml
       CPA_ENDPOINT: ${CPA_ENDPOINT:-}
       CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY:-}
+      SUB2_ENDPOINT: ${SUB2_ENDPOINT:-}
+      SUB2_ADMIN_API_KEY: ${SUB2_ADMIN_API_KEY:-}
+      ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
       PYTHONPATH: /app/src
       TZ: Asia/Shanghai
     volumes:

@@ -37,7 +37,7 @@ notifications:
     # NapCatQQ/OneBot HTTP 服务地址。
     endpoint: http://127.0.0.1:3301
     # OneBot 访问令牌；没有配置鉴权时保持空字符串。
-    access_token: ""
+    access_token: ${ONEBOT_ACCESS_TOKEN:-}
     retry_count: 2
     # 当前适配器使用 OneBot Array 消息段格式；报表图片优先以 file:// 本地路径交给 NapCat 读取。
     # 如果 NapCat 读不到该路径，会自动改用 base64:// 图片兜底，适合 Docker/跨机器部署。
