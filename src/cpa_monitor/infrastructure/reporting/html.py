@@ -140,6 +140,14 @@ def render_report_html(
     .hourly-title {{ margin-bottom: 10px; font-weight: 700; }}
     .hourly-line {{ display: flex; flex-wrap: wrap; gap: 8px 22px; line-height: 1.6; }}
     .hourly-list {{ margin: 0; padding-left: 20px; line-height: 1.65; }}
+    .account-grid {{ display: grid; column-gap: 10px; row-gap: 4px; align-items: baseline; font-size: 17px; line-height: 1.5; }}
+    .quota-account-grid {{ grid-template-columns: minmax(220px, 280px) 58px 58px 124px 210px; }}
+    .error-account-grid {{ grid-template-columns: minmax(220px, 280px) 94px minmax(420px, 1fr); }}
+    .account-row {{ display: contents; }}
+    .account-cell {{ min-width: 0; padding: 2px 0; }}
+    .account-name {{ overflow-wrap: anywhere; }}
+    .account-quota, .account-time, .account-status {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
+    .account-detail {{ overflow-wrap: anywhere; }}
     .footer {{ margin-top: 20px; font-size: 14px; }}
   </style>
 </head>
@@ -169,11 +177,9 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
     ]
 
     recovery_items = _recovery_items(latest)
-    upcoming_recoveries = [item for item in recovery_items if item.metric.available <= 0][:3]
     recovery_windows = _recovery_window_items(latest, recovery_items)
     available = _available_account_block(latest)
-    upcoming = _upcoming_recovery_block(upcoming_recoveries)
-    exhausted = _exhausted_account_block(latest, {item.metric.type_name for item in upcoming_recoveries})
+    exhausted = _exhausted_account_block(latest)
     errors = _error_account_block(latest, history_snapshots)
 
     sections = [
@@ -185,7 +191,6 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
             + "</div>",
         ),
         available,
-        upcoming,
         exhausted,
         errors,
     ]
@@ -203,57 +208,52 @@ def _hourly_section(title: str, body: str) -> str:
 def _available_account_block(snapshot: MetricSnapshot) -> str:
     metrics = sorted(
         effective_metrics(snapshot.type_metrics),
-        key=lambda metric: _sort_time_key(_local_time(metric.reset_5h_at, snapshot.captured_at)),
+        key=lambda metric: _sort_percent_key(metric.remaining_5h_percent),
     )
     if not metrics:
         return _hourly_section("当前可用账号", "<div class='muted'>当前没有可用账号。</div>")
-    items = []
-    for metric in metrics:
-        reset_5h_at = _local_time(metric.reset_5h_at, snapshot.captured_at)
-        reset_text = "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
-        snapshot_text = _usage_snapshot_text(metric, snapshot.captured_at)
-        items.append(
-            f"{mask_display_name(metric.type_name)}："
-            f"5h {_compact_percent(metric.remaining_5h_percent)}，"
-            f"7d {_compact_percent(metric.remaining_7d_percent)}，{reset_text}，{snapshot_text}"
-        )
-    return _list_section("当前可用账号", items)
+    rows = [_account_quota_cells(metric, snapshot.captured_at) for metric in metrics]
+    return _grid_section("当前可用账号", "quota-account-grid", rows)
 
 
-def _upcoming_recovery_block(recovery_items: list[RecoveryItem]) -> str:
-    if not recovery_items:
-        return ""
-    items = [
-        f"{mask_display_name(item.metric.type_name)}：{item.reset_at:%H:%M}，恢复后 +{_compact_percent(item.gain_percent)}"
-        for item in recovery_items
-    ]
-    return _list_section("即将恢复", items)
-
-
-def _exhausted_account_block(snapshot: MetricSnapshot, recovery_names: set[str]) -> str:
-    items = []
-    for metric in snapshot.type_metrics:
-        if metric.available > 0 or metric.rate_limited > 0 or metric.unauthorized > 0 or metric.other_errors > 0 or metric.type_name in recovery_names:
-            continue
-        reason = _exhausted_reason(metric)
-        if reason:
-            items.append(f"{mask_display_name(metric.type_name)}：{reason}")
-    return _list_section("额度耗尽", items)
+def _exhausted_account_block(snapshot: MetricSnapshot) -> str:
+    metrics = sorted(
+        (
+            metric
+            for metric in snapshot.type_metrics
+            if _is_five_hour_exhausted(metric)
+            and not _is_weekly_exhausted(metric)
+            and metric.rate_limited == 0
+            and metric.unauthorized == 0
+            and metric.other_errors == 0
+        ),
+        key=lambda metric: _sort_time_key(_local_time(metric.reset_5h_at, snapshot.captured_at)),
+    )
+    rows = [_account_quota_cells(metric, snapshot.captured_at) for metric in metrics]
+    return _grid_section("五小时额度耗尽", "quota-account-grid", rows)
 
 
 def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[MetricSnapshot]) -> str:
-    items = []
+    rows = []
     for metric in sorted(snapshot.type_metrics, key=lambda item: _sort_time_key(_local_time(item.rate_limited_until, snapshot.captured_at))):
-        if metric.rate_limited > 0:
+        if metric.rate_limited > 0 and _is_weekly_exhausted(metric):
             reset_at = _local_time(metric.rate_limited_until, snapshot.captured_at)
             reset_text = "恢复时间未知" if reset_at is None else f"预计 {reset_at:%m-%d %H:%M} 恢复"
-            items.append(f"{mask_display_name(metric.type_name)}：429 限流，{reset_text}，{_usage_snapshot_text(metric, snapshot.captured_at)}")
+            rows.append(
+                [
+                    mask_display_name(metric.type_name),
+                    "429 限流",
+                    f"周额度耗尽，{reset_text}，{_usage_snapshot_text(metric, snapshot.captured_at)}",
+                ]
+            )
         if metric.unauthorized > 0:
             usage = _last_success_usage_text(metric.type_name, snapshot.captured_at, history_snapshots)
-            items.append(f"{mask_display_name(metric.type_name)}：401 未授权，{usage}")
+            rows.append([mask_display_name(metric.type_name), "401 未授权", usage])
+        if _is_weekly_exhausted(metric) and metric.rate_limited == 0 and metric.unauthorized == 0 and metric.other_errors == 0:
+            rows.append([mask_display_name(metric.type_name), "周额度耗尽", _account_quota_detail(metric, snapshot.captured_at)])
         if metric.other_errors > 0:
-            items.append(f"{mask_display_name(metric.type_name)}：其他错误 {metric.other_errors}")
-    return _list_section("异常账号", items)
+            rows.append([mask_display_name(metric.type_name), "其他错误", str(metric.other_errors)])
+    return _grid_section("异常账号", "error-account-grid", rows)
 
 
 def _list_section(title: str, items: list[str]) -> str:
@@ -261,6 +261,26 @@ def _list_section(title: str, items: list[str]) -> str:
         return ""
     body = "<ul class='hourly-list'>" + "".join(f"<li>{html.escape(item)}</li>" for item in items) + "</ul>"
     return _hourly_section(title, body)
+
+
+def _grid_section(title: str, grid_class: str, rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    body = f"<div class='account-grid {grid_class}'>" + "".join(_account_grid_row(row, grid_class) for row in rows) + "</div>"
+    return _hourly_section(title, body)
+
+
+def _account_grid_row(cells: list[str], grid_class: str) -> str:
+    classes = (
+        ["account-name", "account-quota", "account-quota", "account-time", "account-time"]
+        if grid_class == "quota-account-grid"
+        else ["account-name", "account-status", "account-detail"]
+    )
+    html_cells = []
+    for index, cell in enumerate(cells):
+        extra_class = classes[index] if index < len(classes) else ""
+        html_cells.append(f"<span class='account-cell {extra_class}'>{html.escape(cell)}</span>")
+    return "<div class='account-row'>" + "".join(html_cells) + "</div>"
 
 
 def _recovery_items(snapshot: MetricSnapshot) -> list[RecoveryItem]:
@@ -303,14 +323,35 @@ def _snapshot_other_errors(snapshot: MetricSnapshot) -> int:
     return snapshot.other_errors or sum(metric.other_errors for metric in snapshot.type_metrics)
 
 
-def _exhausted_reason(metric: TypeMetric) -> str:
-    if metric.remaining_7d_percent is not None and metric.remaining_7d_percent <= 0:
-        return "7d 已耗尽"
-    if metric.remaining_5h_percent is not None and metric.remaining_5h_percent <= 0:
-        return "5h 已耗尽"
-    if metric.total > 0 and metric.available <= 0:
-        return "不可用"
-    return ""
+def _account_quota_cells(metric: TypeMetric, reference: datetime) -> list[str]:
+    return [
+        mask_display_name(metric.type_name),
+        f"5h {_compact_percent(metric.remaining_5h_percent)}",
+        f"7d {_compact_percent(metric.remaining_7d_percent)}",
+        _recovery_time_text(metric, reference),
+        _usage_snapshot_text(metric, reference),
+    ]
+
+
+def _account_quota_detail(metric: TypeMetric, reference: datetime) -> str:
+    return (
+        f"5h {_compact_percent(metric.remaining_5h_percent)}，"
+        f"7d {_compact_percent(metric.remaining_7d_percent)}，"
+        f"{_recovery_time_text(metric, reference)}，{_usage_snapshot_text(metric, reference)}"
+    )
+
+
+def _recovery_time_text(metric: TypeMetric, reference: datetime) -> str:
+    reset_5h_at = _local_time(metric.reset_5h_at, reference)
+    return "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
+
+
+def _is_five_hour_exhausted(metric: TypeMetric) -> bool:
+    return metric.remaining_5h_percent is not None and metric.remaining_5h_percent <= 0
+
+
+def _is_weekly_exhausted(metric: TypeMetric) -> bool:
+    return metric.remaining_7d_percent is not None and metric.remaining_7d_percent <= 0
 
 
 def _compact_percent(value: float | None) -> str:
@@ -337,6 +378,10 @@ def _usage_snapshot_text(metric: TypeMetric, reference: datetime) -> str:
 
 def _sort_time_key(value: datetime | None) -> tuple[int, datetime]:
     return (value is None, value or datetime.max)
+
+
+def _sort_percent_key(value: float | None) -> tuple[int, float]:
+    return (value is None, value or float("inf"))
 
 
 async def write_report(

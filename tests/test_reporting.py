@@ -277,16 +277,82 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "预计耗尽" not in html
     assert "【当前可用账号】" in html
     assert "la***st@example.com" in html
+    assert "5h 45%" in html
     assert "预计 17:00 恢复" in html
     assert "快照 12:45，约 15 分钟前" in html
-    assert html.index("so***@example.com") < html.index("la***st@example.com")
-    assert "【即将恢复】" in html
-    assert "re***er@example.com：13:30，恢复后 +25%" in html
-    assert "【额度耗尽】" in html
-    assert "we***ty@example.com：7d 已耗尽" in html
+    assert html.index("la***st@example.com") < html.index("so***@example.com")
+    assert "account-grid quota-account-grid" in html
+    assert "【即将恢复】" not in html
+    assert "【额度耗尽】" not in html
+    assert "【五小时额度耗尽】" in html
+    assert "re***er@example.com" in html
+    assert "5h 0%" in html
     assert "【异常账号】" in html
-    assert "ba***@example.com：401 未授权，5h 已用 35.00%，7d 已用 82.00%" in html
+    assert "account-grid error-account-grid" in html
+    assert "we***ty@example.com" in html
+    assert "周额度耗尽" in html
+    assert "ba***@example.com" in html
+    assert "401 未授权" in html
+    assert "5h 已用 35.00%，7d 已用 82.00%" in html
     assert "latest@example.com" not in html
+
+
+def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
+    tz = ZoneInfo("Asia/Shanghai")
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="Codex",
+        captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
+        available=0,
+        total=4,
+        rate_limited=2,
+        type_metrics=(
+            TypeMetric(
+                type_name="later@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=90,
+                reset_5h_at=datetime(2026, 5, 29, 15, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="early@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=80,
+                reset_5h_at=datetime(2026, 5, 29, 14, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="weekly-429@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=0,
+                rate_limited=1,
+                rate_limited_until=datetime(2026, 5, 29, 16, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="only-429@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=50,
+                remaining_7d_percent=50,
+                rate_limited=1,
+                rate_limited_until=datetime(2026, 5, 29, 14, 30, tzinfo=tz),
+            ),
+        ),
+    )
+
+    html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
+
+    assert html.index("ea***ly@example.com") < html.index("la***er@example.com")
+    assert "预计 14:00 恢复" in html
+    assert "预计 15:00 恢复" in html
+    assert "we***29@example.com" in html
+    assert "429 限流" in html
+    assert "周额度耗尽，预计 05-29 16:00 恢复，快照时间未知" in html
+    assert "on***29@example.com" not in html
 
 
 def test_hourly_report_shows_zero_error_counts_and_type_metric_401_fallback():
@@ -329,7 +395,9 @@ def test_hourly_report_always_lists_current_401_account():
 
     assert "401 异常：1" in html
     assert "【异常账号】" in html
-    assert "ba***@example.com：401 未授权，历史额度不足" in html
+    assert "ba***@example.com" in html
+    assert "401 未授权" in html
+    assert "历史额度不足" in html
     assert "bad@example.com" not in html
 
 
