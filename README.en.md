@@ -182,6 +182,7 @@ uv run cpa-monitor --config config.yaml run
 - `targets[].headers.Authorization`: Authentication header in the `Bearer <Management Key>` format. The example reads it from `CPA_MANAGEMENT_KEY`; put the real key only in your local `.env` or runtime environment.
 - `sub2_codex` uses `headers.x-api-key` for the Admin API Key. It does not call `/usage` or actively probe upstream quota; it only paginates the account list and reads local Codex snapshot fields.
 - sub2 hourly reports recognize `rate_limit_reset_at`, `temp_unschedulable_until`, and `overload_until` as 429 / temporary-unschedulable signals. 429 accounts are shown in the abnormal-account section sorted by expected recovery time.
+- sub2 hourly reports show `extra.codex_usage_updated_at` so users can judge whether the quota snapshot is fresh enough.
 - The hourly report header calculates total 5h / 7d quota from currently available accounts only. 429, 401, error, exhausted, and unavailable accounts are excluded from that average.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
 - `targets[].cron` / `targets[].crons`: Polling Cron for each target. Use `cron` for a single schedule and `crons` for multiple custom windows. Collection should run before report schedules; the default example collects at minute 50 to leave a window before the top-of-hour report.

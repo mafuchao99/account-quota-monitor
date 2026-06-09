@@ -211,10 +211,11 @@ def _available_account_block(snapshot: MetricSnapshot) -> str:
     for metric in metrics:
         reset_5h_at = _local_time(metric.reset_5h_at, snapshot.captured_at)
         reset_text = "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
+        snapshot_text = _usage_snapshot_text(metric, snapshot.captured_at)
         items.append(
             f"{mask_display_name(metric.type_name)}："
             f"5h {_compact_percent(metric.remaining_5h_percent)}，"
-            f"7d {_compact_percent(metric.remaining_7d_percent)}，{reset_text}"
+            f"7d {_compact_percent(metric.remaining_7d_percent)}，{reset_text}，{snapshot_text}"
         )
     return _list_section("当前可用账号", items)
 
@@ -246,7 +247,7 @@ def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[Metri
         if metric.rate_limited > 0:
             reset_at = _local_time(metric.rate_limited_until, snapshot.captured_at)
             reset_text = "恢复时间未知" if reset_at is None else f"预计 {reset_at:%m-%d %H:%M} 恢复"
-            items.append(f"{mask_display_name(metric.type_name)}：429 限流，{reset_text}")
+            items.append(f"{mask_display_name(metric.type_name)}：429 限流，{reset_text}，{_usage_snapshot_text(metric, snapshot.captured_at)}")
         if metric.unauthorized > 0:
             usage = _last_success_usage_text(metric.type_name, snapshot.captured_at, history_snapshots)
             items.append(f"{mask_display_name(metric.type_name)}：401 未授权，{usage}")
@@ -324,6 +325,14 @@ def _local_time(value: datetime | None, reference: datetime) -> datetime | None:
     if value is None:
         return None
     return value.astimezone(reference.tzinfo) if reference.tzinfo else value
+
+
+def _usage_snapshot_text(metric: TypeMetric, reference: datetime) -> str:
+    updated_at = _local_time(metric.usage_updated_at, reference)
+    if updated_at is None:
+        return "快照时间未知"
+    minutes = max(0, round((reference - updated_at).total_seconds() / 60))
+    return f"快照 {updated_at:%H:%M}，约 {minutes} 分钟前"
 
 
 def _sort_time_key(value: datetime | None) -> tuple[int, datetime]:

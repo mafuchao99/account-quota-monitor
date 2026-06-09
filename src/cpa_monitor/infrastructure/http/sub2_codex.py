@@ -109,6 +109,7 @@ def account_metric(account: dict[str, Any], captured_at: datetime | None = None)
         remaining_7d_percent=remaining_7d,
         reset_5h_at=parse_datetime(extra.get("codex_5h_reset_at")),
         reset_7d_at=parse_datetime(extra.get("codex_7d_reset_at")),
+        usage_updated_at=parse_datetime(extra.get("codex_usage_updated_at")),
         rate_limited=1 if rate_limited else 0,
         rate_limited_until=rate_limited_until,
         unauthorized=unauthorized,

@@ -44,6 +44,7 @@ class SqliteSnapshotStore:
               remaining_7d_percent real,
               reset_5h_at text,
               reset_7d_at text,
+              usage_updated_at text,
               rate_limited integer not null default 0,
               rate_limited_until text,
               unauthorized integer not null,
@@ -80,6 +81,8 @@ class SqliteSnapshotStore:
             self.conn.execute("alter table type_metrics add column reset_5h_at text")
         if "reset_7d_at" not in columns:
             self.conn.execute("alter table type_metrics add column reset_7d_at text")
+        if "usage_updated_at" not in columns:
+            self.conn.execute("alter table type_metrics add column usage_updated_at text")
         if "rate_limited" not in columns:
             self.conn.execute("alter table type_metrics add column rate_limited integer not null default 0")
         if "rate_limited_until" not in columns:
@@ -109,8 +112,8 @@ class SqliteSnapshotStore:
         self.conn.executemany(
             """
             insert into type_metrics
-              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, reset_5h_at, reset_7d_at, rate_limited, rate_limited_until, unauthorized, other_errors)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, reset_5h_at, reset_7d_at, usage_updated_at, rate_limited, rate_limited_until, unauthorized, other_errors)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -122,6 +125,7 @@ class SqliteSnapshotStore:
                     metric.remaining_7d_percent,
                     metric.reset_5h_at.isoformat() if metric.reset_5h_at else None,
                     metric.reset_7d_at.isoformat() if metric.reset_7d_at else None,
+                    metric.usage_updated_at.isoformat() if metric.usage_updated_at else None,
                     metric.rate_limited,
                     metric.rate_limited_until.isoformat() if metric.rate_limited_until else None,
                     metric.unauthorized,
@@ -222,6 +226,7 @@ class SqliteSnapshotStore:
                     remaining_7d_percent=item["remaining_7d_percent"],
                     reset_5h_at=_datetime_or_none(item["reset_5h_at"]),
                     reset_7d_at=_datetime_or_none(item["reset_7d_at"]),
+                    usage_updated_at=_datetime_or_none(item["usage_updated_at"]),
                     rate_limited=item["rate_limited"],
                     rate_limited_until=_datetime_or_none(item["rate_limited_until"]),
                     unauthorized=item["unauthorized"],

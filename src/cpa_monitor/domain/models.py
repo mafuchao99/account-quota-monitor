@@ -14,6 +14,7 @@ class TypeMetric:
     remaining_7d_percent: float | None = None
     reset_5h_at: datetime | None = None
     reset_7d_at: datetime | None = None
+    usage_updated_at: datetime | None = None
     rate_limited: int = 0
     rate_limited_until: datetime | None = None
     unauthorized: int = 0

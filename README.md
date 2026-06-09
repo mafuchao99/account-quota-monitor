@@ -195,6 +195,7 @@ uv run cpa-monitor --config config.yaml notify-test --message "Account Quota Mon
 - `targets[].headers.Authorization`：请求鉴权头，格式为 `Bearer <Management Key>`；示例使用环境变量 `CPA_MANAGEMENT_KEY`，真实 Key 写到本地 `.env` 或运行环境变量。
 - `sub2_codex` 使用 `headers.x-api-key` 配置 Admin API Key。它不会调用 `/usage` 主动查询上游，只分页读取账号列表里的 Codex 快照字段；快照来自 sub2 本地保存的最近使用结果，可能不是实时余量。
 - sub2 小时报会识别 `rate_limit_reset_at`、`temp_unschedulable_until`、`overload_until` 等 429/临时不可调度字段。429 账号会显示在“异常账号”里，并按预计恢复时间排序。
+- sub2 小时报会展示 `extra.codex_usage_updated_at` 快照更新时间，方便判断余量数据是否足够新。
 - 小时报顶部的“5h 总额度 / 7d 总额度”只按当前可用账号计算；429、401、错误、额度耗尽和不可用账号不会参与这个平均值。
 - `targets[].delay_min_seconds` / `delay_max_seconds`：全量额度采集的随机间隔。只影响 `collect` / 常驻采集，`quota-one` 单查不会等待。
 - `targets[].cron` / `targets[].crons`：单个接口采集 Cron；简单场景用 `cron`，复杂时段用 `crons` 列表。建议采集时间早于报告时间，默认示例在第 50 分钟采集，给整点小时报留出采集窗口。

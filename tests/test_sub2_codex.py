@@ -68,6 +68,7 @@ def test_account_metric_maps_codex_snapshot_to_remaining_percent_and_reset_time(
                 "codex_5h_reset_at": "2026-06-09T05:00:00Z",
                 "codex_7d_used_percent": 88,
                 "codex_7d_reset_at": 1770500000,
+                "codex_usage_updated_at": "2026-06-09T03:30:00Z",
             },
         }
     )
@@ -78,6 +79,7 @@ def test_account_metric_maps_codex_snapshot_to_remaining_percent_and_reset_time(
     assert metric.remaining_7d_percent == 12
     assert metric.reset_5h_at is not None
     assert metric.reset_7d_at is not None
+    assert metric.usage_updated_at is not None
 
 
 def test_account_metric_marks_exhausted_or_future_rate_limit_unavailable():
