@@ -43,7 +43,7 @@ def evaluate_alerts(
                 target.id,
                 "unauthorized",
                 f"{target.name} 出现 401",
-                f"当前 401 数量为 {current.unauthorized}，阈值为 {thresholds.unauthorized}。{_unauthorized_detail(current)}",
+                f"本次发现 {current.unauthorized} 个账号 401。{_unauthorized_detail(current)}",
             )
         )
 
@@ -82,4 +82,4 @@ def _unauthorized_detail(snapshot: MetricSnapshot) -> str:
         return ""
     shown = names[:10]
     suffix = "" if len(names) <= len(shown) else f"，等 {len(names)} 个账号"
-    return f"账号：{'、'.join(shown)}{suffix}。"
+    return "\n401 账号：\n" + "\n".join(f"- {name}" for name in shown) + suffix

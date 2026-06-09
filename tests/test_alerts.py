@@ -47,4 +47,6 @@ def test_evaluate_alerts_includes_unauthorized_account_names(tmp_path):
     alerts = evaluate_alerts(target, current, None, store, now)
 
     assert alerts[0].rule_key == "unauthorized"
-    assert "账号：ac***er@example.com。" in alerts[0].message
+    assert "阈值" not in alerts[0].message
+    assert "本次发现 1 个账号 401。" in alerts[0].message
+    assert "401 账号：\n- ac***er@example.com" in alerts[0].message
