@@ -91,8 +91,8 @@ def test_format_snapshot_summary_lists_exhausted_5h_account_when_weekly_quota_re
 
     summary = format_snapshot_summary(snapshot, now)
 
-    assert "总 5h 额度：49.67%" in summary
-    assert "总 7d 额度：53.00%" in summary
+    assert "总 5h 额度：50.00%" in summary
+    assert "总 7d 额度：75.00%" in summary
     assert "17:33，约 97 分钟后，ea***ly@example.com 可使总 5h 额度 +33.33%" in summary
     assert "18:37，约 161 分钟后，av***le@example.com 可使总 5h 额度 +16.67%" in summary
     assert "early@example.com" not in summary
@@ -101,7 +101,7 @@ def test_format_snapshot_summary_lists_exhausted_5h_account_when_weekly_quota_re
     assert "unauthorized@example.com" not in summary
 
 
-def test_format_snapshot_summary_uses_non_error_account_pool_for_total_quota():
+def test_format_snapshot_summary_uses_available_account_pool_for_total_quota():
     now = datetime(2026, 5, 29, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
     snapshot = MetricSnapshot(
         target_id="codex",
@@ -123,9 +123,9 @@ def test_format_snapshot_summary_uses_non_error_account_pool_for_total_quota():
 
     summary = format_snapshot_summary(snapshot, now)
 
-    assert "可用账号：2/5，禁用：1，401：1，其他错误：1" in summary
-    assert "总 5h 额度：46.67%" in summary
-    assert "总 7d 额度：20.00%" in summary
+    assert "可用账号：2/5，禁用：1，429：0，401：1，其他错误：1" in summary
+    assert "总 5h 额度：70.00%" in summary
+    assert "总 7d 额度：30.00%" in summary
 
 
 def test_format_snapshot_summary_skips_missing_quota_field_per_window():

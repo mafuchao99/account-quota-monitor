@@ -9,11 +9,11 @@ from .models import MetricSnapshot, TypeMetric
 def format_snapshot_summary(snapshot: MetricSnapshot, now: datetime | None = None) -> str:
     now = now or snapshot.captured_at
     available_metrics = effective_metrics(snapshot.type_metrics)
-    quota_metrics = quota_pool_metrics(snapshot.type_metrics)
+    quota_metrics = available_metrics
     recoveries = recovery_events(snapshot.type_metrics, now)
     lines = [
         f"{snapshot.target_name} 本次汇总",
-        f"可用账号：{snapshot.available}/{snapshot.total}，禁用：{snapshot.disabled}，401：{snapshot.unauthorized}，其他错误：{snapshot.other_errors}",
+        f"可用账号：{snapshot.available}/{snapshot.total}，禁用：{snapshot.disabled}，429：{snapshot.rate_limited}，401：{snapshot.unauthorized}，其他错误：{snapshot.other_errors}",
         _total_quota_line(quota_metrics),
     ]
     if recoveries:

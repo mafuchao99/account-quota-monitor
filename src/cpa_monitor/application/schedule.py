@@ -97,6 +97,8 @@ class MonitorScheduler:
         self.collect_interval_minutes: dict[str, int] = {}
 
         for target in targets:
+            if not target.enabled:
+                continue
             self._add_collect_job(target)
         for index, report_cron in enumerate(report_crons):
             self.scheduler.add_job(

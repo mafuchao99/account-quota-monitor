@@ -39,6 +39,7 @@ class DynamicSchedule:
 class TargetConfig:
     id: str
     name: str
+    enabled: bool = True
     url: str = ""
     collector: str = "http_json"
     base_url: str = ""
@@ -263,6 +264,7 @@ def _parse_target(data: dict[str, Any]) -> TargetConfig:
     return TargetConfig(
         id=str(data["id"]),
         name=str(data["name"]),
+        enabled=bool(data.get("enabled", True)),
         url=str(data.get("url", "")),
         collector=str(data.get("collector", "http_json")),
         base_url=str(data.get("base_url", "")),
@@ -321,18 +323,40 @@ def _validate_config(config: MonitorConfig) -> None:
             raise ValueError("QQBot notification is enabled but QQBOT_OPENID is not configured in .env.")
 
     for target in config.targets:
-        if target.collector.lower() != "cli_proxy_codex":
+        if not target.enabled:
             continue
-        if _is_placeholder(target.base_url or target.url, {"https://your-cpa-endpoint.example.com"}):
+        if target.collector.lower() not in {"cli_proxy_codex", "sub2_codex"}:
+            continue
+        if target.collector.lower() == "cli_proxy_codex" and _is_placeholder(
+            target.base_url or target.url,
+            {"https://your-cpa-endpoint.example.com"},
+        ):
             raise ValueError(
                 f"Target {target.id} is still using the example CPA endpoint. "
                 "Set CPA_ENDPOINT in .env to your CLIProxyAPI address."
             )
+        if target.collector.lower() == "sub2_codex" and _is_placeholder(
+            target.base_url or target.url,
+            {"https://your-sub2-endpoint.example.com"},
+        ):
+            raise ValueError(
+                f"Target {target.id} is still using the example sub2 endpoint. "
+                "Set SUB2_ENDPOINT in .env to your sub2 address."
+            )
         authorization = target.headers.get("Authorization", "")
-        if _is_placeholder(authorization.removeprefix("Bearer").strip(), {"your-management-key"}):
+        api_key = target.headers.get("x-api-key", "")
+        if target.collector.lower() == "cli_proxy_codex" and _is_placeholder(
+            authorization.removeprefix("Bearer").strip(),
+            {"your-management-key"},
+        ):
             raise ValueError(
                 f"Target {target.id} is still using the example Management Key. "
                 "Set CPA_MANAGEMENT_KEY in .env to your real Management Key."
+            )
+        if target.collector.lower() == "sub2_codex" and _is_placeholder(api_key, {"your-admin-api-key"}):
+            raise ValueError(
+                f"Target {target.id} is still using the example Admin API Key. "
+                "Set SUB2_ADMIN_API_KEY in .env to your real sub2 Admin API Key."
             )
 
 

@@ -55,8 +55,8 @@ def test_report_detail_summary_splits_total_quota_and_recoveries():
     html = render_report_html([snapshot], captured_at)
 
     assert '<div class="quota-line">' in html
-    assert "<span>总 5h 46.67%</span>" in html
-    assert "<span>总 7d 81.33%</span>" in html
+    assert "<span>总 5h 70.00%</span>" in html
+    assert "<span>总 7d 80.00%</span>" in html
     assert "最近三次 5h 恢复：" in html
     assert "<li>13:20，约 14 分钟后，ea***ly@example.com 可使总 5h 额度 +33.33%</li>" in html
     assert "<li>13:36，约 30 分钟后，a***@example.com 可使总 5h 额度 +6.67%</li>" in html
@@ -66,7 +66,7 @@ def test_report_detail_summary_splits_total_quota_and_recoveries():
     assert "b@example.com" not in html
 
 
-def test_report_detail_summary_uses_non_error_account_pool_for_total_quota():
+def test_report_detail_summary_uses_available_account_pool_for_total_quota():
     tz = ZoneInfo("Asia/Shanghai")
     captured_at = datetime(2026, 5, 29, 13, 6, tzinfo=tz)
     snapshot = MetricSnapshot(
@@ -93,8 +93,8 @@ def test_report_detail_summary_uses_non_error_account_pool_for_total_quota():
     assert "<span>禁用 1</span>" in html
     assert "<span>401 1</span>" in html
     assert "<span>其他错误 1</span>" in html
-    assert "<span>总 5h 46.67%</span>" in html
-    assert "<span>总 7d 20.00%</span>" in html
+    assert "<span>总 5h 70.00%</span>" in html
+    assert "<span>总 7d 40.00%</span>" in html
 
 
 def test_report_detail_summary_shows_unknown_recovery_time():
@@ -265,8 +265,8 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "分时明细" not in html
     assert "【当前状态】" in html
     assert "可用账号：2/5" in html
-    assert "5h 总额度：48.50%" in html
-    assert "7d 总额度：65.75%" in html
+    assert "5h 总额度：47.50%" in html
+    assert "7d 总额度：91.50%" in html
     assert "禁用：0" in html
     assert "401 异常：1" in html
     assert "其他错误：0" in html

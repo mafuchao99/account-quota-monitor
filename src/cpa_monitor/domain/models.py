@@ -14,6 +14,8 @@ class TypeMetric:
     remaining_7d_percent: float | None = None
     reset_5h_at: datetime | None = None
     reset_7d_at: datetime | None = None
+    rate_limited: int = 0
+    rate_limited_until: datetime | None = None
     unauthorized: int = 0
     other_errors: int = 0
 
@@ -26,6 +28,7 @@ class MetricSnapshot:
     available: int
     total: int
     disabled: int = 0
+    rate_limited: int = 0
     unauthorized: int = 0
     other_errors: int = 0
     type_metrics: tuple[TypeMetric, ...] = field(default_factory=tuple)

@@ -35,6 +35,8 @@ class MonitorService:
     async def collect_once(self) -> list[MetricSnapshot]:
         snapshots = []
         for target in self.config.targets:
+            if not target.enabled:
+                continue
             snapshots.append(await self.collect_target(target))
         for snapshot in snapshots:
             await self.notifier.send_text(format_snapshot_summary(snapshot))

@@ -1,6 +1,8 @@
-# CPA Monitor
+# Account Quota Monitor
 
-CPA Monitor is a long-running HTTP quota monitor. It polls HTTP JSON APIs on Cron schedules, stores snapshots in SQLite, evaluates alert thresholds, renders image reports, and sends notifications through a QQ OneBot gateway.
+Account Quota Monitor is a long-running account quota monitor. It polls CPA / sub2 management APIs on Cron schedules, stores snapshots in SQLite, evaluates alert thresholds, renders image reports, and sends notifications through a QQ OneBot gateway.
+
+Repository: [mafuchao99/account-quota-monitor](https://github.com/mafuchao99/account-quota-monitor)
 
 Chinese documentation: [README.md](README.md)
 
@@ -36,21 +38,27 @@ The core business logic is isolated from external tools. Future channels such as
 python scripts/dev.py setup
 ```
 
-Replace the placeholders in `.env` with your CLIProxyAPI endpoint and Management Key:
+For CLIProxyAPI / CPA, replace the placeholders in `.env` with your endpoint and Management Key:
 
 ```env
 CPA_ENDPOINT=https://your-domain.example
 CPA_MANAGEMENT_KEY=your-management-key
 ```
 
-Run one collection pass:
+For sub2 monitoring, enable `sub2-codex-quota` in `config.yaml` and configure:
+
+```env
+SUB2_ENDPOINT=https://your-sub2-domain.example
+SUB2_ADMIN_API_KEY=admin-api-key
+```
+
+Run one collection pass. `collect` only collects enabled targets; if only sub2 is enabled, it only reads the sub2 account list:
 
 ```bash
-python scripts/dev.py credentials
 python scripts/dev.py collect
 ```
 
-If `.env` still contains example placeholders, startup fails fast with a message pointing to `CPA_ENDPOINT` or `CPA_MANAGEMENT_KEY`.
+`credentials` and `quota-one` are for `cli_proxy_codex` targets only. sub2 monitoring uses `collect` / `run`.
 
 ## Docker Deployment
 
@@ -63,11 +71,12 @@ cp config.example.yaml config.yaml
 
 2. Edit `.env` and `config.yaml`:
 
-- `CPA_ENDPOINT` in `.env`: Your CLIProxyAPI endpoint. It can be either the bare domain or the full `/v0/management` management URL.
-- `CPA_MANAGEMENT_KEY` in `.env`: Your Management Key.
-- `targets[].collector`: The default template uses `cli_proxy_codex`, which reads credentials and collects Codex quota through the CLIProxyAPI management APIs.
-- `targets[].base_url`: The default template uses `${CPA_ENDPOINT}`. Never commit your real endpoint.
-- `targets[].headers.Authorization`: The default template uses `Bearer ${CPA_MANAGEMENT_KEY}`. The app automatically loads a sibling `.env` file and also supports system environment variables. Never commit the real key.
+- For CPA: set `CPA_ENDPOINT` to your CLIProxyAPI endpoint and `CPA_MANAGEMENT_KEY` to your Management Key.
+- For sub2: set `SUB2_ENDPOINT` to your sub2 endpoint and `SUB2_ADMIN_API_KEY` to your Admin API Key.
+- `targets[].collector`: use `cli_proxy_codex` for CPA; use `sub2_codex` for sub2. The sub2 collector reads local Codex snapshots from the account list.
+- `targets[].enabled`: target-level toggle. To switch from CPA to sub2, disable the CPA target and enable `sub2-codex-quota`.
+- `targets[].base_url`: reads from environment variables by default. Never commit your real endpoint.
+- `targets[].headers.Authorization` / `targets[].headers.x-api-key`: keep real keys in local `.env` or runtime environment variables. Never commit them.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Full collection queries credentials sequentially and waits a random delay between credentials. The default is 5 to 10 seconds to avoid concurrent quota checks.
 - `notifications.console.enabled`: Enabled by default. Alerts and report notices are printed to the console.
 - `notifications.onebot.enabled`: Set it to `true` when using NapCatQQ/OneBot, then fill endpoint and recipients. At the moment, only the OneBot/NapCatQQ channel can send QQ notifications.
@@ -87,6 +96,22 @@ docker compose logs -f cpa-monitor
 
 The container reads `/app/config/config.yaml` and writes SQLite data plus generated reports to the host `./data` directory.
 The image uses `uv` with `uv.lock` so local and container dependency resolution stay consistent.
+
+Rebuild on a remote server:
+
+```bash
+cd /path/to/account-quota-monitor
+git pull
+docker compose down
+docker compose up -d --build
+docker compose logs -f cpa-monitor
+```
+
+If the remote still points at the old repository name, update it first:
+
+```bash
+git remote set-url origin https://github.com/mafuchao99/account-quota-monitor.git
+```
 
 ## Local Development
 
@@ -108,7 +133,7 @@ Common development commands:
 
 ```bash
 python scripts/dev.py credentials
-python scripts/dev.py notify --message "CPA Monitor notification test"
+python scripts/dev.py notify --message "Account Quota Monitor notification test"
 python scripts/dev.py onebot-login
 python scripts/dev.py onebot-groups
 python scripts/dev.py collect
@@ -135,7 +160,7 @@ python scripts/dev.py run
 ```bash
 uv run cpa-monitor --config config.yaml collect-once
 uv run cpa-monitor --config config.yaml credentials
-uv run cpa-monitor --config config.yaml notify-test --message "CPA Monitor notification test"
+uv run cpa-monitor --config config.yaml notify-test --message "Account Quota Monitor notification test"
 uv run cpa-monitor --config config.yaml report
 uv run cpa-monitor --config config.yaml report --hours 6 --detail-mode all
 uv run cpa-monitor --config config.yaml run
@@ -151,9 +176,13 @@ uv run cpa-monitor --config config.yaml run
 - `app.report_cron` / `app.report_crons` / `app.report_hours` / `app.report_detail_mode`: hourly report schedule, window, and detail mode. `report_crons` supports multiple custom send times, while the legacy `report_cron` field remains compatible. Defaults to a short hourly report with only the latest detail block.
 - `app.full_report_enabled` / `app.full_report_crons` / `app.full_report_hours` / `app.full_report_detail_mode`: full report toggle, schedules, window, and detail mode. Disabled by default; when enabled, it sends the last 6-hour full detail report at 07:30, 12:10, 19:10, and 23:30 without triggering collection.
 - 401 account analysis is deduplicated by account name and date. An account reported once today will not be repeated in later hourly/full reports until the next day.
-- `targets[].collector`: Collector type. `cli_proxy_codex` calls CLIProxyAPI `/auth-files` and `/api-call`; omitting it keeps the original `http_json` behavior.
+- `targets[].enabled`: target-level toggle. Disabled targets are not scheduled and are skipped by `collect-once`.
+- `targets[].collector`: Collector type. `cli_proxy_codex` calls CLIProxyAPI `/auth-files` and `/api-call`; `sub2_codex` calls sub2 `/api/v1/admin/accounts` and reads local `extra.codex_*` snapshots; omitting it keeps the original `http_json` behavior.
 - `targets[].base_url`: CLIProxyAPI endpoint. The example reads it from `CPA_ENDPOINT`; put the real endpoint only in your local `.env` or runtime environment.
 - `targets[].headers.Authorization`: Authentication header in the `Bearer <Management Key>` format. The example reads it from `CPA_MANAGEMENT_KEY`; put the real key only in your local `.env` or runtime environment.
+- `sub2_codex` uses `headers.x-api-key` for the Admin API Key. It does not call `/usage` or actively probe upstream quota; it only paginates the account list and reads local Codex snapshot fields.
+- sub2 hourly reports recognize `rate_limit_reset_at`, `temp_unschedulable_until`, and `overload_until` as 429 / temporary-unschedulable signals. 429 accounts are shown in the abnormal-account section sorted by expected recovery time.
+- The hourly report header calculates total 5h / 7d quota from currently available accounts only. 429, 401, error, exhausted, and unavailable accounts are excluded from that average.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
 - `targets[].cron` / `targets[].crons`: Polling Cron for each target. Use `cron` for a single schedule and `crons` for multiple custom windows. Collection should run before report schedules; the default example collects at minute 50 to leave a window before the top-of-hour report.
 - `targets[].dynamic_schedule`: Optional dynamic polling interval. Disabled by default. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
@@ -202,10 +231,10 @@ notifications:
 After configuration, send a test notification:
 
 ```bash
-python scripts/dev.py notify --message "CPA Monitor notification test"
+python scripts/dev.py notify --message "Account Quota Monitor notification test"
 ```
 
-CPA Monitor uses these OneBot HTTP APIs:
+Account Quota Monitor uses these OneBot HTTP APIs:
 
 - Connectivity check: `/get_login_info`
 - Group list: `/get_group_list`

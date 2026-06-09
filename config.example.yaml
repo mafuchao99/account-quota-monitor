@@ -61,7 +61,9 @@ notifications:
 targets:
   - id: codex-quota
     name: Codex 额度
+    enabled: true
     # 采集器类型。cli_proxy_codex 会通过 CLIProxyAPI 管理端拉凭证并代理查询 Codex 额度。
+    # sub2_codex 会读取 sub2 管理端账号列表中的本地 Codex 快照，不主动请求上游余量。
     # 不配置时默认 http_json，适合普通 HTTP JSON 接口。
     collector: cli_proxy_codex
     # CLIProxyAPI 地址，从 .env 的 CPA_ENDPOINT 读取。可以填裸域名或带 /v0/management 的管理端地址。
@@ -97,4 +99,25 @@ targets:
       # 总可用比例低于多少百分比时告警；dynamic_schedule 未配置紧张阈值时也会沿用它。
       remaining_percent: 20
       # 同一类告警的静默时间，避免重复刷屏。
+      silence_minutes: 60
+
+  - id: sub2-codex-quota
+    name: sub2 Codex 额度
+    # 需要切到 sub2 监控时改为 true，并按需关闭上面的 CPA 目标。
+    enabled: false
+    collector: sub2_codex
+    # sub2 管理端地址，从 .env 的 SUB2_ENDPOINT 读取；可以填裸域名或带 /api/v1/admin 的地址。
+    base_url: ${SUB2_ENDPOINT:-https://your-sub2-endpoint.example.com}
+    # 这个采集器只请求 /api/v1/admin/accounts 分页列表，读取 extra.codex_* 本地快照。
+    crons:
+      - "0 50 7-23 * * *"
+      - "0 50 1,5 * * *"
+    headers:
+      # sub2 Admin API Key 真实值写入 .env，不要提交到仓库。
+      x-api-key: ${SUB2_ADMIN_API_KEY:-your-admin-api-key}
+    thresholds:
+      available_drop: 1
+      unauthorized: 1
+      other_errors: 1
+      remaining_percent: 20
       silence_minutes: 60

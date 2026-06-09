@@ -27,6 +27,7 @@ class SqliteSnapshotStore:
               available integer not null,
               total integer not null,
               disabled integer not null,
+              rate_limited integer not null default 0,
               unauthorized integer not null,
               other_errors integer not null,
               raw_json text not null
@@ -43,6 +44,8 @@ class SqliteSnapshotStore:
               remaining_7d_percent real,
               reset_5h_at text,
               reset_7d_at text,
+              rate_limited integer not null default 0,
+              rate_limited_until text,
               unauthorized integer not null,
               other_errors integer not null
             );
@@ -63,7 +66,13 @@ class SqliteSnapshotStore:
             """
         )
         self._ensure_type_metric_columns()
+        self._ensure_snapshot_columns()
         self.conn.commit()
+
+    def _ensure_snapshot_columns(self) -> None:
+        columns = {row["name"] for row in self.conn.execute("pragma table_info(snapshots)").fetchall()}
+        if "rate_limited" not in columns:
+            self.conn.execute("alter table snapshots add column rate_limited integer not null default 0")
 
     def _ensure_type_metric_columns(self) -> None:
         columns = {row["name"] for row in self.conn.execute("pragma table_info(type_metrics)").fetchall()}
@@ -71,13 +80,17 @@ class SqliteSnapshotStore:
             self.conn.execute("alter table type_metrics add column reset_5h_at text")
         if "reset_7d_at" not in columns:
             self.conn.execute("alter table type_metrics add column reset_7d_at text")
+        if "rate_limited" not in columns:
+            self.conn.execute("alter table type_metrics add column rate_limited integer not null default 0")
+        if "rate_limited_until" not in columns:
+            self.conn.execute("alter table type_metrics add column rate_limited_until text")
 
     def save_snapshot(self, snapshot: MetricSnapshot) -> int:
         cursor = self.conn.execute(
             """
             insert into snapshots
-              (target_id, target_name, captured_at, available, total, disabled, unauthorized, other_errors, raw_json)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (target_id, target_name, captured_at, available, total, disabled, rate_limited, unauthorized, other_errors, raw_json)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot.target_id,
@@ -86,6 +99,7 @@ class SqliteSnapshotStore:
                 snapshot.available,
                 snapshot.total,
                 snapshot.disabled,
+                snapshot.rate_limited,
                 snapshot.unauthorized,
                 snapshot.other_errors,
                 json.dumps(snapshot.raw, ensure_ascii=False),
@@ -95,8 +109,8 @@ class SqliteSnapshotStore:
         self.conn.executemany(
             """
             insert into type_metrics
-              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, reset_5h_at, reset_7d_at, unauthorized, other_errors)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (snapshot_id, type_name, available, total, remaining_5h_percent, remaining_7d_percent, reset_5h_at, reset_7d_at, rate_limited, rate_limited_until, unauthorized, other_errors)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -108,6 +122,8 @@ class SqliteSnapshotStore:
                     metric.remaining_7d_percent,
                     metric.reset_5h_at.isoformat() if metric.reset_5h_at else None,
                     metric.reset_7d_at.isoformat() if metric.reset_7d_at else None,
+                    metric.rate_limited,
+                    metric.rate_limited_until.isoformat() if metric.rate_limited_until else None,
                     metric.unauthorized,
                     metric.other_errors,
                 )
@@ -194,6 +210,7 @@ class SqliteSnapshotStore:
             available=row["available"],
             total=row["total"],
             disabled=row["disabled"],
+            rate_limited=row["rate_limited"],
             unauthorized=row["unauthorized"],
             other_errors=row["other_errors"],
             type_metrics=tuple(
@@ -205,6 +222,8 @@ class SqliteSnapshotStore:
                     remaining_7d_percent=item["remaining_7d_percent"],
                     reset_5h_at=_datetime_or_none(item["reset_5h_at"]),
                     reset_7d_at=_datetime_or_none(item["reset_7d_at"]),
+                    rate_limited=item["rate_limited"],
+                    rate_limited_until=_datetime_or_none(item["rate_limited_until"]),
                     unauthorized=item["unauthorized"],
                     other_errors=item["other_errors"],
                 )
