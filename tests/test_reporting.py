@@ -301,6 +301,41 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "latest@example.com" not in html
 
 
+def test_hourly_report_sorts_available_accounts_by_7d_reset_time():
+    tz = ZoneInfo("Asia/Shanghai")
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="Codex",
+        captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
+        available=2,
+        total=2,
+        type_metrics=(
+            TypeMetric(
+                type_name="late-5h@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=10,
+                remaining_7d_percent=90,
+                reset_5h_at=datetime(2026, 5, 29, 14, 0, tzinfo=tz),
+                reset_7d_at=datetime(2026, 5, 30, 16, 0, tzinfo=tz),
+            ),
+            TypeMetric(
+                type_name="early-5h@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=90,
+                remaining_7d_percent=80,
+                reset_5h_at=datetime(2026, 5, 29, 18, 0, tzinfo=tz),
+                reset_7d_at=datetime(2026, 5, 29, 14, 30, tzinfo=tz),
+            ),
+        ),
+    )
+
+    html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
+
+    assert html.index("ea***5h@example.com") < html.index("la***5h@example.com")
+
+
 def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
     tz = ZoneInfo("Asia/Shanghai")
     snapshot = MetricSnapshot(

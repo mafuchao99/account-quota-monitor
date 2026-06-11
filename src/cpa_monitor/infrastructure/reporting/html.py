@@ -211,7 +211,7 @@ def _hourly_section(title: str, body: str) -> str:
 def _available_account_block(snapshot: MetricSnapshot) -> str:
     metrics = sorted(
         effective_metrics(snapshot.type_metrics),
-        key=lambda metric: _sort_percent_key(metric.remaining_5h_percent),
+        key=lambda metric: _available_account_sort_key(metric, snapshot.captured_at),
     )
     if not metrics:
         return _hourly_section(_count_title("当前可用账号", 0), "<div class='muted'>当前没有可用账号。</div>")
@@ -403,6 +403,14 @@ def _sort_time_key(value: datetime | None) -> tuple[int, datetime]:
 
 def _sort_percent_key(value: float | None) -> tuple[int, float]:
     return (value is None, value or float("inf"))
+
+
+def _available_account_sort_key(metric: TypeMetric, reference: datetime) -> tuple[tuple[int, datetime], tuple[int, datetime], str]:
+    return (
+        _sort_time_key(_local_time(metric.reset_7d_at, reference)),
+        _sort_time_key(_local_time(metric.reset_5h_at, reference)),
+        metric.type_name.casefold(),
+    )
 
 
 async def write_report(
