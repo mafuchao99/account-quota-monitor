@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from cpa_monitor.domain.alerts import evaluate_alerts
 from cpa_monitor.domain.models import MetricSnapshot
-from cpa_monitor.domain.summary import format_snapshot_summary
+from cpa_monitor.domain.summary import format_hourly_snapshot_summary, format_snapshot_summary
 
 from .config import MonitorConfig, TargetConfig
 from .ports import Notifier, ReportRenderer, SnapshotCollector, SnapshotStore
@@ -65,7 +65,12 @@ class MonitorService:
         snapshots = self.store.snapshots_since(now - timedelta(hours=hours))
         history_snapshots = self.store.all_snapshots()
         if snapshots:
-            await self.notifier.send_text(format_snapshot_summary(snapshots[-1], now))
+            summary = (
+                format_hourly_snapshot_summary(snapshots[-1], now)
+                if detail_mode == "latest"
+                else format_snapshot_summary(snapshots[-1], now)
+            )
+            await self.notifier.send_text(summary)
         unauthorized_names = _unauthorized_names(snapshots)
         report_date = now.strftime("%Y-%m-%d")
         new_unauthorized_names = self.store.unreported_unauthorized_names(unauthorized_names, report_date)

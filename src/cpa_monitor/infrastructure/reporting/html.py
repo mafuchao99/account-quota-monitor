@@ -8,12 +8,20 @@ from pathlib import Path
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
 from cpa_monitor.domain.summary import (
     average_percent,
+    available_account_sort_key,
+    display_rate_limited_count,
     effective_metrics,
+    five_hour_exhausted_count,
     format_snapshot_summary,
+    is_five_hour_exhausted,
+    is_weekly_exhausted,
+    local_time,
     mask_display_name,
     quota_pool_metrics,
     recoverable_metrics,
     recovery_events,
+    snapshot_other_errors_count,
+    snapshot_unauthorized_count,
 )
 
 
@@ -164,10 +172,10 @@ def render_report_html(
 def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: list[MetricSnapshot]) -> str:
     latest = snapshots[-1]
     quota_metrics = effective_metrics(latest.type_metrics)
-    five_hour_exhausted = _snapshot_five_hour_exhausted(latest)
-    rate_limited = _snapshot_display_rate_limited(latest)
-    unauthorized = _snapshot_unauthorized(latest)
-    other_errors = _snapshot_other_errors(latest)
+    five_hour_exhausted = five_hour_exhausted_count(latest.type_metrics)
+    rate_limited = display_rate_limited_count(latest.type_metrics)
+    unauthorized = snapshot_unauthorized_count(latest)
+    other_errors = snapshot_other_errors_count(latest)
     available = len(quota_metrics) if latest.type_metrics else latest.available
     status_items = [
         f"可用账号：{available}",
@@ -225,12 +233,12 @@ def _exhausted_account_block(snapshot: MetricSnapshot) -> str:
         (
             metric
             for metric in snapshot.type_metrics
-            if _is_five_hour_exhausted(metric)
-            and not _is_weekly_exhausted(metric)
+            if is_five_hour_exhausted(metric)
+            and not is_weekly_exhausted(metric)
             and metric.unauthorized == 0
             and metric.other_errors == 0
         ),
-        key=lambda metric: _sort_time_key(_local_time(metric.reset_5h_at, snapshot.captured_at)),
+        key=lambda metric: _sort_time_key(local_time(metric.reset_5h_at, snapshot.captured_at)),
     )
     rows = [_account_quota_cells(metric, snapshot.captured_at) for metric in metrics]
     return _grid_section("五小时额度耗尽", "quota-account-grid", rows)
@@ -238,9 +246,9 @@ def _exhausted_account_block(snapshot: MetricSnapshot) -> str:
 
 def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[MetricSnapshot]) -> str:
     rows = []
-    for metric in sorted(snapshot.type_metrics, key=lambda item: _sort_time_key(_local_time(item.rate_limited_until, snapshot.captured_at))):
-        if metric.rate_limited > 0 and _is_weekly_exhausted(metric):
-            reset_at = _local_time(metric.rate_limited_until, snapshot.captured_at)
+    for metric in sorted(snapshot.type_metrics, key=lambda item: _sort_time_key(local_time(item.rate_limited_until, snapshot.captured_at))):
+        if metric.rate_limited > 0 and is_weekly_exhausted(metric):
+            reset_at = local_time(metric.rate_limited_until, snapshot.captured_at)
             reset_text = "刷新时间未知" if reset_at is None else f"预计 {reset_at:%m-%d %H:%M} 刷新"
             rows.append(
                 [
@@ -252,7 +260,7 @@ def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[Metri
         if metric.unauthorized > 0:
             usage = _last_success_usage_text(metric.type_name, snapshot.captured_at, history_snapshots)
             rows.append([mask_display_name(metric.type_name), "401 未授权", usage])
-        if _is_weekly_exhausted(metric) and metric.rate_limited == 0 and metric.unauthorized == 0 and metric.other_errors == 0:
+        if is_weekly_exhausted(metric) and metric.rate_limited == 0 and metric.unauthorized == 0 and metric.other_errors == 0:
             rows.append([mask_display_name(metric.type_name), "周额度耗尽", _account_quota_detail(metric, snapshot.captured_at)])
         if metric.other_errors > 0:
             rows.append([mask_display_name(metric.type_name), "其他错误", str(metric.other_errors)])
@@ -299,7 +307,7 @@ def _recovery_items(snapshot: MetricSnapshot) -> list[RecoveryItem]:
     for metric in recoverable_metrics(quota_metrics):
         if metric.reset_5h_at is None or metric.remaining_5h_percent is None:
             continue
-        reset_at = _local_time(metric.reset_5h_at, snapshot.captured_at)
+        reset_at = local_time(metric.reset_5h_at, snapshot.captured_at)
         if reset_at is None:
             continue
         gain_percent = max(0.0, 100.0 - metric.remaining_5h_percent) / account_count
@@ -316,29 +324,6 @@ def _recovery_window_items(snapshot: MetricSnapshot, recovery_items: list[Recove
         gain = sum(item.gain_percent for item in recovery_items if now <= item.reset_at <= end_at)
         result.append(f"{label}：+{_compact_percent(gain)}" if gain > 0 else f"{label}：-")
     return result
-
-
-def _snapshot_unauthorized(snapshot: MetricSnapshot) -> int:
-    return snapshot.unauthorized or sum(metric.unauthorized for metric in snapshot.type_metrics)
-
-
-def _snapshot_five_hour_exhausted(snapshot: MetricSnapshot) -> int:
-    return sum(
-        1
-        for metric in snapshot.type_metrics
-        if _is_five_hour_exhausted(metric)
-        and not _is_weekly_exhausted(metric)
-        and metric.unauthorized == 0
-        and metric.other_errors == 0
-    )
-
-
-def _snapshot_display_rate_limited(snapshot: MetricSnapshot) -> int:
-    return sum(1 for metric in snapshot.type_metrics if metric.rate_limited > 0 and _is_weekly_exhausted(metric))
-
-
-def _snapshot_other_errors(snapshot: MetricSnapshot) -> int:
-    return snapshot.other_errors or sum(metric.other_errors for metric in snapshot.type_metrics)
 
 
 def _account_quota_cells(metric: TypeMetric, reference: datetime) -> list[str]:
@@ -359,21 +344,13 @@ def _account_quota_detail(metric: TypeMetric, reference: datetime) -> str:
 
 
 def _recovery_time_text(metric: TypeMetric, reference: datetime) -> str:
-    reset_5h_at = _local_time(metric.reset_5h_at, reference)
+    reset_5h_at = local_time(metric.reset_5h_at, reference)
     return "恢复时间未知" if reset_5h_at is None else f"预计 {reset_5h_at:%H:%M} 恢复"
 
 
 def _weekly_reset_text(metric: TypeMetric, reference: datetime) -> str:
-    reset_7d_at = _local_time(metric.reset_7d_at, reference)
+    reset_7d_at = local_time(metric.reset_7d_at, reference)
     return "7d 刷新未知" if reset_7d_at is None else f"7d 预计 {reset_7d_at:%m-%d %H:%M} 刷新"
-
-
-def _is_five_hour_exhausted(metric: TypeMetric) -> bool:
-    return metric.remaining_5h_percent is not None and metric.remaining_5h_percent <= 0
-
-
-def _is_weekly_exhausted(metric: TypeMetric) -> bool:
-    return metric.remaining_7d_percent is not None and metric.remaining_7d_percent <= 0
 
 
 def _compact_percent(value: float | None) -> str:
@@ -384,14 +361,8 @@ def _compact_percent(value: float | None) -> str:
     return f"{value:.2f}%"
 
 
-def _local_time(value: datetime | None, reference: datetime) -> datetime | None:
-    if value is None:
-        return None
-    return value.astimezone(reference.tzinfo) if reference.tzinfo else value
-
-
 def _usage_snapshot_text(metric: TypeMetric, reference: datetime) -> str:
-    updated_at = _local_time(metric.usage_updated_at, reference)
+    updated_at = local_time(metric.usage_updated_at, reference)
     if updated_at is None:
         return "快照时间未知"
     minutes = max(0, round((reference - updated_at).total_seconds() / 60))
@@ -407,11 +378,7 @@ def _sort_percent_key(value: float | None) -> tuple[int, float]:
 
 
 def _available_account_sort_key(metric: TypeMetric, reference: datetime) -> tuple[tuple[int, datetime], tuple[int, datetime], str]:
-    return (
-        _sort_time_key(_local_time(metric.reset_7d_at, reference)),
-        _sort_time_key(_local_time(metric.reset_5h_at, reference)),
-        metric.type_name.casefold(),
-    )
+    return available_account_sort_key(metric, reference)
 
 
 async def write_report(
@@ -602,8 +569,8 @@ def _html_total_quota(snapshot: MetricSnapshot) -> str:
     metrics = effective_metrics(snapshot.type_metrics)
     five = average_percent(item.remaining_5h_percent for item in metrics)
     seven = average_percent(item.remaining_7d_percent for item in metrics)
-    unauthorized = _snapshot_unauthorized(snapshot)
-    other_errors = _snapshot_other_errors(snapshot)
+    unauthorized = snapshot_unauthorized_count(snapshot)
+    other_errors = snapshot_other_errors_count(snapshot)
     recoveries = recovery_events(snapshot.type_metrics, snapshot.captured_at)[:3]
     if recoveries:
         recovery_html = "\n".join(f"<li>{html.escape(item)}</li>" for item in recoveries)

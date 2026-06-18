@@ -46,6 +46,9 @@ class FakeStore:
 
 
 class FakeNotifier:
+    def __init__(self):
+        self.texts = []
+
     async def send_alert(self, alert):
         pass
 
@@ -53,7 +56,7 @@ class FakeNotifier:
         pass
 
     async def send_text(self, text):
-        pass
+        self.texts.append(text)
 
 
 class FakeReporter:
@@ -89,6 +92,7 @@ async def test_send_report_uses_configured_detail_mode_and_filters_reported_401(
     )
     reporter = FakeReporter()
     store = FakeStore([snapshot])
+    notifier = FakeNotifier()
     service = MonitorService(
         config=MonitorConfig(
             app=AppConfig(report_hours=1, report_detail_mode="latest"),
@@ -99,7 +103,7 @@ async def test_send_report_uses_configured_detail_mode_and_filters_reported_401(
         ),
         collector=FakeCollector(),
         store=store,
-        notifier=FakeNotifier(),
+        notifier=notifier,
         reporter=reporter,
     )
 
@@ -108,3 +112,4 @@ async def test_send_report_uses_configured_detail_mode_and_filters_reported_401(
     assert reporter.calls[0]["detail_mode"] == "latest"
     assert reporter.calls[0]["unauthorized_names"] == {"new@example.com"}
     assert store.marked == [({"new@example.com"}, snapshot.captured_at.strftime("%Y-%m-%d"))]
+    assert notifier.texts[0].startswith("Codex 小时报")

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from cpa_monitor.domain.models import MetricSnapshot, TypeMetric
-from cpa_monitor.domain.summary import format_snapshot_summary, mask_display_name
+from cpa_monitor.domain.summary import format_hourly_snapshot_summary, format_snapshot_summary, mask_display_name
 
 
 def test_format_snapshot_summary_lists_available_quota_and_recovery_time():
@@ -188,3 +188,61 @@ def test_recovery_gain_uses_recoverable_accounts_with_5h_quota():
     assert "no-5h 可使总 5h 额度" not in summary
     assert "unauthorized 可使总 5h 额度" not in summary
     assert "error 可使总 5h 额度" not in summary
+
+
+def test_format_hourly_snapshot_summary_matches_hourly_report_counts():
+    now = datetime(2026, 5, 29, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="sub2 Codex 额度",
+        captured_at=now,
+        available=1,
+        total=5,
+        rate_limited=2,
+        type_metrics=(
+            TypeMetric(
+                "ok@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=84,
+                remaining_7d_percent=90,
+                reset_5h_at=now + timedelta(hours=2),
+            ),
+            TypeMetric(
+                "recover@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=80,
+                reset_5h_at=now + timedelta(minutes=30),
+            ),
+            TypeMetric(
+                "temporary-429@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=50,
+                remaining_7d_percent=80,
+                rate_limited=1,
+                rate_limited_until=now + timedelta(minutes=30),
+            ),
+            TypeMetric(
+                "weekly-429@example.com",
+                available=0,
+                total=1,
+                remaining_5h_percent=0,
+                remaining_7d_percent=0,
+                rate_limited=1,
+                rate_limited_until=now + timedelta(hours=3),
+            ),
+            TypeMetric("bad@example.com", available=0, total=1, unauthorized=1),
+        ),
+    )
+
+    summary = format_hourly_snapshot_summary(snapshot, now)
+
+    assert "sub2 Codex 额度 小时报" in summary
+    assert "可用账号：1，5h 总额度：84.00%，7d 总额度：90.00%" in summary
+    assert "5小时限额：1，429 限流：1，401 异常：1，其他错误：0" in summary
+    assert "30分钟内可恢复：+25%" in summary
+    assert "ok@example.com" not in summary
+    assert "o***@example.com: 5h 84%，7d 90%" in summary
