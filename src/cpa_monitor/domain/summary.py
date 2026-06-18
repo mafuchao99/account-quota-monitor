@@ -57,7 +57,14 @@ def recovery_events(metrics: Iterable[TypeMetric], now: datetime) -> list[str]:
 
 
 def effective_metrics(metrics: Iterable[TypeMetric]) -> list[TypeMetric]:
-    return [item for item in metrics if item.available > 0 and item.unauthorized == 0 and item.other_errors == 0]
+    return [
+        item
+        for item in metrics
+        if item.available > 0
+        and item.rate_limited == 0
+        and item.unauthorized == 0
+        and item.other_errors == 0
+    ]
 
 
 def quota_pool_metrics(metrics: Iterable[TypeMetric]) -> list[TypeMetric]:

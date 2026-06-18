@@ -266,7 +266,7 @@ def test_report_detail_mode_latest_renders_compact_hourly_report():
     assert "总览趋势" not in html
     assert "分时明细" not in html
     assert "【当前状态】" in html
-    assert "可用账号：2/5" in html
+    assert "可用账号：2" in html
     assert "5h 总额度：47.50%" in html
     assert "7d 总额度：91.50%" in html
     assert "禁用：0" in html
@@ -334,6 +334,44 @@ def test_hourly_report_sorts_available_accounts_by_7d_reset_time():
     html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
 
     assert html.index("ea***5h@example.com") < html.index("la***5h@example.com")
+
+
+def test_hourly_report_excludes_rate_limited_accounts_from_available_pool():
+    tz = ZoneInfo("Asia/Shanghai")
+    snapshot = MetricSnapshot(
+        target_id="codex",
+        target_name="Codex",
+        captured_at=datetime(2026, 5, 29, 13, 0, tzinfo=tz),
+        available=2,
+        total=2,
+        type_metrics=(
+            TypeMetric(
+                type_name="ok@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=80,
+                remaining_7d_percent=90,
+            ),
+            TypeMetric(
+                type_name="limited@example.com",
+                available=1,
+                total=1,
+                remaining_5h_percent=20,
+                remaining_7d_percent=70,
+                rate_limited=1,
+                rate_limited_until=datetime(2026, 5, 29, 14, 30, tzinfo=tz),
+            ),
+        ),
+    )
+
+    html = render_report_html([snapshot], snapshot.captured_at, detail_mode="latest")
+
+    assert "可用账号：1" in html
+    assert "5h 总额度：80.00%" in html
+    assert "7d 总额度：90.00%" in html
+    assert "【当前可用账号（1）】" in html
+    assert "o***@example.com" in html
+    assert "li***ed@example.com" not in html
 
 
 def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
@@ -406,7 +444,7 @@ def test_hourly_report_filters_five_hour_exhausted_and_weekly_429_accounts():
     assert "预计 15:00 恢复" in html
     assert "we***29@example.com" in html
     assert "429 限流" in html
-    assert "周额度耗尽，预计 05-29 16:00 恢复，快照时间未知" in html
+    assert "周额度耗尽，预计 05-29 16:00 刷新，快照时间未知" in html
     assert "on***29@example.com" not in html
 
 

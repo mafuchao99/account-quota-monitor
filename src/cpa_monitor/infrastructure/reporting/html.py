@@ -168,8 +168,9 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
     rate_limited = _snapshot_display_rate_limited(latest)
     unauthorized = _snapshot_unauthorized(latest)
     other_errors = _snapshot_other_errors(latest)
+    available = len(quota_metrics) if latest.type_metrics else latest.available
     status_items = [
-        f"可用账号：{latest.available}/{latest.total}",
+        f"可用账号：{available}",
         f"5h 总额度：{average_percent(metric.remaining_5h_percent for metric in quota_metrics)}",
         f"7d 总额度：{average_percent(metric.remaining_7d_percent for metric in quota_metrics)}",
         f"禁用：{latest.disabled}",
@@ -181,7 +182,7 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
 
     recovery_items = _recovery_items(latest)
     recovery_windows = _recovery_window_items(latest, recovery_items)
-    available = _available_account_block(latest)
+    available_accounts = _available_account_block(latest)
     exhausted = _exhausted_account_block(latest)
     errors = _error_account_block(latest, history_snapshots)
 
@@ -193,7 +194,7 @@ def _hourly_report_block(snapshots: list[MetricSnapshot], history_snapshots: lis
             + "".join(f"<span>{html.escape(item)}</span>" for item in recovery_windows)
             + "</div>",
         ),
-        available,
+        available_accounts,
         exhausted,
         errors,
     ]
@@ -240,7 +241,7 @@ def _error_account_block(snapshot: MetricSnapshot, history_snapshots: list[Metri
     for metric in sorted(snapshot.type_metrics, key=lambda item: _sort_time_key(_local_time(item.rate_limited_until, snapshot.captured_at))):
         if metric.rate_limited > 0 and _is_weekly_exhausted(metric):
             reset_at = _local_time(metric.rate_limited_until, snapshot.captured_at)
-            reset_text = "恢复时间未知" if reset_at is None else f"预计 {reset_at:%m-%d %H:%M} 恢复"
+            reset_text = "刷新时间未知" if reset_at is None else f"预计 {reset_at:%m-%d %H:%M} 刷新"
             rows.append(
                 [
                     mask_display_name(metric.type_name),
