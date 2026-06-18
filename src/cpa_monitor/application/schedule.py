@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from datetime import tzinfo
 
 from cpa_monitor.domain.models import MetricSnapshot
+from cpa_monitor.domain.summary import snapshot_5h_remaining_percent
 
 from .config import TargetConfig
 
@@ -63,7 +64,8 @@ def desired_collect_interval_minutes(target: TargetConfig, snapshot: MetricSnaps
         if schedule.urgent_remaining_percent is None
         else schedule.urgent_remaining_percent
     )
-    if snapshot.available_percent is not None and snapshot.available_percent <= threshold:
+    percent = snapshot_5h_remaining_percent(snapshot)
+    if percent is not None and percent <= threshold:
         return schedule.urgent_interval_minutes
     return schedule.normal_interval_minutes
 

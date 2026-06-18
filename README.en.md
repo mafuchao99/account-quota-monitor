@@ -186,9 +186,9 @@ uv run cpa-monitor --config config.yaml run
 - The hourly report header calculates total 5h / 7d quota from currently available accounts only. 429, 401, error, exhausted, and unavailable accounts are excluded from that average.
 - `targets[].delay_min_seconds` / `delay_max_seconds`: Random delay for full quota collection. It affects `collect` and scheduled collection only; `quota-one` does not wait.
 - `targets[].cron` / `targets[].crons`: Polling Cron for each target. Use `cron` for a single schedule and `crons` for multiple custom windows. Collection should run before report schedules; the default example collects at minute 50 to leave a window before the top-of-hour report.
-- `targets[].dynamic_schedule`: Optional dynamic polling interval. Disabled by default. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when the remaining percent is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
+- `targets[].dynamic_schedule`: Optional dynamic polling interval. Disabled by default. When enabled, collection no longer uses `cron`; the target uses `normal_interval_minutes`, switches to `urgent_interval_minutes` when total 5h quota is at or below `urgent_remaining_percent`, and falls back to `thresholds.remaining_percent` when the urgent threshold is omitted.
 - `targets[].json_paths`: Required only by the `http_json` collector. It maps response JSON into total, available, error counts, and type details.
-- `targets[].thresholds`: Available drop, 401, other error, remaining percent, and silence window thresholds.
+- `targets[].thresholds`: Available drop, 401, other error, total 5h quota, and silence window thresholds.
 - `notifications.console`: Console notification settings. Enabled by default for local debugging and non-bot deployments.
 - `notifications.onebot`: NapCatQQ/OneBot notification settings. It supports group messages, private messages, login checks, and group-list checks. Report images are sent as local `file://` paths first and automatically fall back to `base64://` when the gateway cannot read the local path.
 - `notifications.qqbot`: Reserved official QQ Bot settings. Sending through the official QQ Bot channel is not adapted yet, so keep it disabled.

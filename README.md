@@ -199,9 +199,9 @@ uv run cpa-monitor --config config.yaml notify-test --message "Account Quota Mon
 - 小时报顶部的“5h 总额度 / 7d 总额度”只按当前可用账号计算；429、401、错误、额度耗尽和不可用账号不会参与这个平均值。
 - `targets[].delay_min_seconds` / `delay_max_seconds`：全量额度采集的随机间隔。只影响 `collect` / 常驻采集，`quota-one` 单查不会等待。
 - `targets[].cron` / `targets[].crons`：单个接口采集 Cron；简单场景用 `cron`，复杂时段用 `crons` 列表。建议采集时间早于报告时间，默认示例在第 50 分钟采集，给整点小时报留出采集窗口。
-- `targets[].dynamic_schedule`：可选动态采集频率，默认关闭；开启后采集不再使用 `cron`，正常按 `normal_interval_minutes`，剩余比例低于 `urgent_remaining_percent` 时按 `urgent_interval_minutes`，未配置紧张阈值时沿用 `thresholds.remaining_percent`。
+- `targets[].dynamic_schedule`：可选动态采集频率，默认关闭；开启后采集不再使用 `cron`，正常按 `normal_interval_minutes`，5h 总额度低于 `urgent_remaining_percent` 时按 `urgent_interval_minutes`，未配置紧张阈值时沿用 `thresholds.remaining_percent`。
 - `targets[].json_paths`：仅 `http_json` 采集器需要，用于从响应 JSON 中提取总量、可用量、错误数和类型明细。
-- `targets[].thresholds`：可用量下降、401、其他错误、剩余比例和静默时间阈值。
+- `targets[].thresholds`：可用量下降、401、其他错误、5h 总额度和静默时间阈值。
 - `notifications.console`：控制台通知配置，默认开启，适合本地调试和不接机器人时使用。
 - `notifications.onebot`：NapCatQQ/OneBot 通知配置。支持群消息、私聊、登录信息探测、群列表探测；报表图片先尝试本地 `file://`，网关读不到路径时自动使用 `base64://` 兜底。
 - `notifications.qqbot`：QQ 官方机器人预留配置，当前暂未适配发送能力，请保持关闭。

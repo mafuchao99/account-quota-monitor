@@ -81,7 +81,7 @@ targets:
       enabled: false
       # 动态调度开启后，正常情况下每 30 分钟采集一次。
       normal_interval_minutes: 30
-      # 动态调度开启后，当剩余额度低于 urgent_remaining_percent 时，缩短为每 10 分钟采集一次。
+      # 动态调度开启后，当 5h 总额度低于 urgent_remaining_percent 时，缩短为每 10 分钟采集一次。
       urgent_interval_minutes: 10
       # 不配置时默认沿用 thresholds.remaining_percent。
       urgent_remaining_percent: 20
@@ -96,7 +96,7 @@ targets:
       unauthorized: 1
       # 其他错误数量达到多少时告警。
       other_errors: 1
-      # 总可用比例低于多少百分比时告警；dynamic_schedule 未配置紧张阈值时也会沿用它。
+      # 5h 总额度低于多少百分比时告警；dynamic_schedule 未配置紧张阈值时也会沿用它。
       remaining_percent: 20
       # 同一类告警的静默时间，避免重复刷屏。
       silence_minutes: 60

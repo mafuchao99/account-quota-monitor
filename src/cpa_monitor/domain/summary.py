@@ -191,10 +191,37 @@ def available_account_sort_key(metric: TypeMetric, reference: datetime) -> tuple
 
 
 def average_percent(values: Iterable[float | None]) -> str:
+    value = average_percent_value(values)
+    if value is None:
+        return "-"
+    return f"{value:.2f}%"
+
+
+def average_percent_value(values: Iterable[float | None]) -> float | None:
     known = [value for value in values if value is not None]
     if not known:
-        return "-"
-    return f"{sum(known) / len(known):.2f}%"
+        return None
+    return sum(known) / len(known)
+
+
+def snapshot_5h_remaining_percent(snapshot: MetricSnapshot) -> float | None:
+    if not snapshot.type_metrics:
+        return snapshot.available_percent
+    metrics = effective_metrics(snapshot.type_metrics)
+    percent = average_percent_value(metric.remaining_5h_percent for metric in metrics)
+    if percent is None and snapshot.available <= 0 and snapshot.total > 0:
+        return 0.0
+    return percent
+
+
+def snapshot_7d_remaining_percent(snapshot: MetricSnapshot) -> float | None:
+    if not snapshot.type_metrics:
+        return None
+    metrics = effective_metrics(snapshot.type_metrics)
+    percent = average_percent_value(metric.remaining_7d_percent for metric in metrics)
+    if percent is None and snapshot.available <= 0 and snapshot.total > 0:
+        return 0.0
+    return percent
 
 
 def mask_display_name(value: str) -> str:

@@ -6,7 +6,7 @@ from typing import Protocol
 from cpa_monitor.application.config import TargetConfig
 
 from .models import Alert, MetricSnapshot
-from .summary import mask_display_name
+from .summary import mask_display_name, snapshot_5h_remaining_percent, snapshot_7d_remaining_percent
 
 
 class AlertState(Protocol):
@@ -57,14 +57,15 @@ def evaluate_alerts(
             )
         )
 
-    percent = current.available_percent
+    percent = snapshot_5h_remaining_percent(current)
     if percent is not None and percent <= thresholds.remaining_percent:
+        seven_day_text = _seven_day_text(current)
         candidates.append(
             Alert(
                 target.id,
                 "remaining_percent",
                 f"{target.name} 剩余额度偏低",
-                f"当前可用比例为 {percent:.2f}%，阈值为 {thresholds.remaining_percent:.2f}%。",
+                f"当前 5h 总额度为 {percent:.2f}%{seven_day_text}，阈值为 {thresholds.remaining_percent:.2f}%。",
             )
         )
 
@@ -83,3 +84,10 @@ def _unauthorized_detail(snapshot: MetricSnapshot) -> str:
     shown = names[:10]
     suffix = "" if len(names) <= len(shown) else f"，等 {len(names)} 个账号"
     return "\n401 账号：\n" + "\n".join(f"- {name}" for name in shown) + suffix
+
+
+def _seven_day_text(snapshot: MetricSnapshot) -> str:
+    percent = snapshot_7d_remaining_percent(snapshot)
+    if percent is None:
+        return ""
+    return f"，7d 总额度为 {percent:.2f}%"
